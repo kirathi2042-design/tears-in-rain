@@ -218,13 +218,12 @@ h1 .slash{color:var(--magenta);text-shadow:0 0 10px var(--magenta)}
     <div class="label">VISUAL CORE</div>
     <button class="mode" data-m="0"><span class="num">01</span>SMOKE<span class="zh">煙霧</span></button>
     <button class="mode" data-m="1"><span class="num">02</span>FIRE<span class="zh">火焰</span></button>
-    <button class="mode" data-m="2"><span class="num">03</span>RAIN<span class="zh">雨滴玻璃</span></button>
-    <button class="mode" data-m="3"><span class="num">04</span>LAVA<span class="zh">熔岩燈</span></button>
-    <button class="mode" data-m="4"><span class="num">05</span>WARP<span class="zh">蟲洞航行</span></button>
-    <button class="mode" data-m="5"><span class="num">06</span>ROAD<span class="zh">都市道路</span></button>
-    <button class="mode" data-m="6"><span class="num">07</span>AURORA<span class="zh">極光</span></button>
-    <button class="mode" data-m="7"><span class="num">08</span>ABYSS<span class="zh">深海生光</span></button>
-    <button class="mode" data-m="8"><span class="num">09</span>VINYL<span class="zh">黑膠迴轉</span></button>
+    <button class="mode" data-m="2"><span class="num">03</span>LAVA<span class="zh">熔岩燈</span></button>
+    <button class="mode" data-m="3"><span class="num">04</span>WARP<span class="zh">蟲洞航行</span></button>
+    <button class="mode" data-m="4"><span class="num">05</span>ROAD<span class="zh">都市道路</span></button>
+    <button class="mode" data-m="5"><span class="num">06</span>AURORA<span class="zh">極光</span></button>
+    <button class="mode" data-m="6"><span class="num">07</span>ABYSS<span class="zh">深海生光</span></button>
+    <button class="mode" data-m="7"><span class="num">08</span>VINYL<span class="zh">黑膠迴轉</span></button>
     <button id="autoBtn">AUTO CYCLE · OFF</button>
   </div>
   <button id="drawerTab" aria-label="開關視覺選單">▶</button>
@@ -300,7 +299,7 @@ uniform float uBass, uMid, uTreble, uLevel, uBeat;
 uniform float uHue, uWind, uEnergy;
 uniform vec2  uBreeze;
 uniform vec4  uGust[8];
-uniform vec4  uRain[8];
+uniform vec4  uGustEx[8];   /* per-gust extras: (age, portIdx, originX, originY) */
 uniform int   uMode;
 uniform sampler2D uFreq;
 
@@ -352,47 +351,47 @@ vec2 vortexWarp(vec2 p, vec2 c, float str, float rad){
   float ca = cos(a), sa = sin(a);
   return c + vec2(ca*d.x - sa*d.y, sa*d.x + ca*d.y);
 }
-/* ═══ 01 SMOKE 煙霧 — rising smoke threaded with visible vortices ═══ */
+/* ═══ 01 SMOKE 煙霧 — eight inlet ports around the frame; each beat opens one at random ═══ */
 vec3 sceneSmoke(vec2 uv){
   vec2 p = (uv-.5)*vec2(aspect(),1.)*2.3;
   float t = uTime;
   vec2 q = p;
-  /* ambient vortices: rise through the frame, alternating spin, fade in/out */
-  for(int i=0;i<5;i++){
-    float fi = float(i);
-    float sgn = mod(fi,2.)<.5 ? 1. : -1.;
-    float cyc = t*.022*(1.+.21*fi) + fi*.41;
-    float ph = fract(cyc);
-    vec2 c = vec2((h11(fi*7.31+floor(cyc))-.5)*2.4 + sin(ph*6.28+fi)*.15,
-                  mix(-1.45,1.45,ph));
-    float amp = sin(ph*3.14159);
-    q = vortexWarp(q, c, sgn*(2.1+1.4*uEnergy)*amp, .58+.1*fi);
-  }
-  /* beats spin up fresh swirls where the gust events land */
+  float dens = 0., portGlow = 0.;
   for(int i=0;i<8;i++){
-    float gs = length(uGust[i].zw);
-    if(gs > .02){
-      float sgn = uGust[i].z + uGust[i].w > 0. ? 1. : -1.;
-      q = vortexWarp(q, uGust[i].xy, sgn*gs*2.4, .5);
+    float amp = length(uGust[i].zw);
+    if(amp < .015) continue;
+    float age = uGustEx[i].x;
+    vec2 head = uGust[i].xy;                       /* eased inward from the port by JS */
+    vec2 origin = uGustEx[i].zw;                   /* the inlet this plume came through */
+    /* the plume curls as it advances — spin alternates with the chosen port */
+    float sgn = mod(uGustEx[i].y, 2.) < 1. ? 1. : -1.;
+    q = vortexWarp(q, head, sgn*amp*1.9, .42+age*.15);
+    /* mass: a chain of puffs from the inlet to the head, billowing as it goes */
+    for(int k=0;k<5;k++){
+      float fk = float(k)/4.;
+      vec2 c = mix(origin, head, fk);
+      float rad = mix(.12, .26+age*.12, fk);
+      vec2 d = p - c;
+      dens += amp * exp(-dot(d,d)/(rad*rad)) * mix(.45,1.,fk) * .5;
     }
+    portGlow += amp * exp(-dot(p-origin,p-origin)*9.);   /* the inlet glints while open */
   }
-  q += uBreeze*(vnoise(p*1.3+t*.2)*.6+.2)*.4;
-  /* rising smoke body sampled through the twisted space */
-  vec2 drift = vec2(0., -t*.16);
-  float body = fbm(q*1.5 + drift);
-  float mid  = fbm(q*3.1 + drift*1.7 + vec2(body*1.4, 0.));
-  float fine = fbm(q*6.4 + drift*2.3 + vec2(mid*1.8, 7.));
-  /* filament contrast: difference of scales → streaky wisps trace each swirl */
-  float wisp = clamp(body*1.25 + mid*.45 - fine*.62 + .08, 0., 1.);
-  float column = smoothstep(1.55,.25, abs(p.x) + uv.y*.4);   /* loose, wide column — no hot core */
-  float density = smoothstep(.18,.85, wisp) * (.45+.55*column);
-  vec3 bg = mix(vec3(.005,.012,.022), vec3(.015,.02,.035), uv.y);
+  q += uBreeze*(vnoise(p*1.3+t*.2)*.6+.2)*.35;
+  /* wispy texture carved through the twisted space */
+  vec2 drift = vec2(0., -t*.12);
+  float body = fbm(q*1.6 + drift);
+  float fine = fbm(q*4.4 + drift*1.8 + vec2(body*1.6, 3.));
+  float texm = clamp(body*1.15 - fine*.5 + .32, 0., 1.);
+  float smoke = clamp(dens, 0., 1.05)*texm + texm*.08;   /* faint haze keeps silence alive */
+  float dd = smoothstep(.1,1.05, smoke);
+  vec3 bg = mix(vec3(.005,.012,.022), vec3(.014,.018,.032), uv.y);
   vec3 cy = vec3(.2,.85,1.), mg = vec3(1.,.2,.78);
   vec3 col = bg;
-  col += cy * density * (.4+.55*uLevel);
-  col += vec3(.8,.95,1.) * pow(density,2.4) * (.3+.25*fine);   /* bright wisp cores */
-  col += mg * smoothstep(.55,.95,mid) * density * (.18+.3*uTreble);
-  col += cy * pow(density,3.) * uBeat * .5;
+  col += cy * dd * (.42+.5*uLevel);
+  col += vec3(.8,.95,1.) * pow(dd,2.3) * (.28+.22*fine);
+  col += mg * smoothstep(.5,1., fine+dd*.35) * dd * (.16+.3*uTreble);
+  col += cy * portGlow * .35;                            /* cyan breath at the open inlet */
+  col += cy * pow(dd,3.) * uBeat * .4;
   return hueRot(col, uHue*.5);
 }
 
@@ -426,90 +425,6 @@ vec3 sceneFire(vec2 uv){
        * pow(max(0.,1.-uv.y),2.7)*edge*(.34+uEnergy*.8+uBeat*.22);
   col += vec3(1.,.45,.06)*pow(flame,2.4)*(.12+uBeat*.18);
   return hueRot(col, uHue*.08);        /* subtle drift, but it remains recognisably fire */
-}
-
-/* ═══ 03 RAIN 雨滴玻璃 — under-glass impact blooms and caustics ═══ */
-vec3 bokehBG(vec2 uv){
-  vec3 col = mix(vec3(.008,.017,.031), vec3(.025,.044,.06), uv.y);
-  for(int i=0;i<18;i++){
-    float fi = float(i);
-    vec2 c = h22(vec2(fi*7.3+1., fi*2.9+5.));
-    vec2 pos = vec2(c.x, fract(c.y + uTime*.004*(c.x-.5)));
-    float sz = (.035+.12*h11(fi*3.7+2.)) * (1.+.12*sin(uTime*.09+fi*1.9));
-    float d = length((uv-pos)*vec2(aspect(),1.));
-    float b = smoothstep(sz, sz*.25, d);
-    vec3 cc = mix(vec3(.0,.72,1.), vec3(1.,.16,.68), h11(fi+2.3));
-    if(h11(fi*9.1+4.)>.78) cc = vec3(1.,.48,.18);
-    col += hueRot(cc, uHue*.35) * b * (.08+.34*uEnergy) * (.55+.45*sin(uTime*.2+fi*2.2));
-  }
-  return col;
-}
-vec4 glassBeads(vec2 uv, float zoom, float seed){
-  vec2 p = uv*vec2(aspect(),1.)*zoom + seed;
-  vec2 id = floor(p), f = fract(p)-.5;
-  vec2 rnd = h22(id);
-  vec2 c = (rnd-.5)*.72;
-  float sz = .012 + .038*h11(id.x*5.1+id.y*8.2);
-  float d = length((f-c)*vec2(1.0,1.25));
-  float bead = smoothstep(sz, sz*.45, d) * step(.42, rnd.y);
-  float rim = max(0., smoothstep(sz, sz*.72, d) - smoothstep(sz*.58, sz*.25, d)) * step(.42, rnd.y);
-  vec2 nrm = normalize(f-c+1e-4) * bead * sz;
-  return vec4(nrm, bead, rim);
-}
-vec4 impactBlooms(vec2 uv){
-  vec2 nrm = vec2(0.);
-  float mask = 0.;
-  float glow = 0.;
-  for(int i=0;i<8;i++){
-    float age = uRain[i].x;
-    float amp = uRain[i].y;
-    float seed = uRain[i].z;
-    float life = smoothstep(.0,.065,age) * (1.-smoothstep(2.15,2.85,age));
-    for(int j=0;j<3;j++){
-      float fj = float(j);
-      float keep = step(h11(seed+fj*13.7), .46 + amp*.42);
-      vec2 pos = h22(vec2(seed*.031+fj*9.1, seed*.017+fj*4.3));
-      pos = mix(vec2(.18,.2), vec2(.88,.86), pos);
-      vec2 d = (uv-pos)*vec2(aspect(),1.);
-      float r = length(d);
-      float base = mix(.045,.13,amp) * (1. + fj*.1);
-      float ringR = base + age*(.095+.06*amp);
-      float ring = exp(-pow((r-ringR)/(.016+.016*amp),2.)) * life * keep;
-      float crown = .5 + .5*cos(atan(d.y,d.x)*9. + seed + age*3.2);
-      float petals = ring * smoothstep(.18,.95,crown);
-      float sheet = smoothstep(ringR*.92, ringR*.18, r) * smoothstep(.0,.22,age) * (1.-smoothstep(.9,2.2,age));
-      float caustic = exp(-pow((r-ringR*.56)/(.024+.018*amp),2.)) * life * keep;
-      nrm += normalize(d+1e-4) * (ring*.07 + sheet*.022 + caustic*.038);
-      mask = max(mask, sheet*.42 + ring*.86 + petals*.78);
-      glow = max(glow, ring*1.12 + petals*.9 + caustic*.72);
-      for(int k=0;k<5;k++){
-        float fk = float(k);
-        float a = fk*1.256 + seed*.07 + fj;
-        vec2 sp = pos + vec2(cos(a),sin(a)) * (ringR*.7 + .025*h11(seed+fk*3.));
-        float sd = length((uv-sp)*vec2(aspect(),1.));
-        float sat = smoothstep(.014+.021*amp, .002, sd) * life * keep * step(.24, h11(seed+fk*11.));
-        glow = max(glow, sat*.8);
-        mask = max(mask, sat*.35);
-      }
-    }
-  }
-  return vec4(nrm, mask, glow);
-}
-vec3 sceneRain(vec2 uv){
-  vec4 b1 = glassBeads(uv, 9., 0.);
-  vec4 b2 = glassBeads(uv, 17., 31.);
-  vec4 bloom = impactBlooms(uv);
-  vec2 nrm = b1.xy*.55 + b2.xy*.35 + bloom.xy;
-  vec3 col = bokehBG(uv + nrm);
-  float frame = max(smoothstep(.006,.0,abs(uv.x-.34)), smoothstep(.006,.0,abs(uv.y-.22)));
-  col *= .86 + .18*smoothstep(.0,.5,uv.y);
-  col = mix(col, col*1.22, max(b1.z,b2.z)*.45);
-  col += vec3(.72,.95,1.) * bloom.w * (.34+.22*uLevel);
-  col += vec3(1.,.44,.75) * bloom.w * .16;
-  col += vec3(.42,.76,1.) * max(b1.w,b2.w) * .12;
-  col = mix(col, vec3(.015,.022,.032), frame*.82);          /* faint glass roof ribs */
-  col += vec3(.7,.9,1.)*uBeat*.035;
-  return col;
 }
 
 /* ═══ 04 LAVA 熔岩燈 — metaball lamp ═══ */
@@ -824,12 +739,11 @@ void main(){
   vec3 col;
   if      (uMode==0) col = sceneSmoke(uv);
   else if (uMode==1) col = sceneFire(uv);
-  else if (uMode==2) col = sceneRain(uv);
-  else if (uMode==3) col = sceneLava(uv);
-  else if (uMode==4) col = sceneWarp(uv);
-  else if (uMode==5) col = sceneRoad(uv);
-  else if (uMode==6) col = sceneAurora(uv);
-  else if (uMode==7) col = sceneAbyss(uv);
+  else if (uMode==2) col = sceneLava(uv);
+  else if (uMode==3) col = sceneWarp(uv);
+  else if (uMode==4) col = sceneRoad(uv);
+  else if (uMode==5) col = sceneAurora(uv);
+  else if (uMode==6) col = sceneAbyss(uv);
   else               col = sceneVinyl(uv);
   /* filmic-ish curve + grade */
   col = 1.-exp(-col*1.65);
@@ -863,7 +777,7 @@ gl.enableVertexAttribArray(aPos);
 gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
 
 const U = {};
-for(const n of ['uRes','uTime','uScroll','uBass','uMid','uTreble','uLevel','uBeat','uHue','uWind','uEnergy','uBreeze','uGust','uRain','uMode','uFreq'])
+for(const n of ['uRes','uTime','uScroll','uBass','uMid','uTreble','uLevel','uBeat','uHue','uWind','uEnergy','uBreeze','uGust','uGustEx','uMode','uFreq'])
   U[n] = gl.getUniformLocation(prog, n);
 
 /* frequency texture: 64 bins */
@@ -896,16 +810,14 @@ let curSrcNode=null, curStream=null, mesNode=null;
 const player = document.getElementById('player');
 
 const GUST_COUNT = 8;
-const RAIN_COUNT = 8;
 const A = { bass:0, mid:0, treble:0, level:0, beat:0,
             bassAvg:0.01, lastBeat:0,
             hue:0, wind:0, windT:0, windSign:1, energy:0,
             vocal:0, breezeAng:.7,
-            gustIdx:0, rainIdx:0,
-            gusts:Array.from({length:GUST_COUNT}, ()=>({sx:9,sy:9,tx:0,ty:0,x:9,y:9,dx:0,dy:0,amp:0,age:9,dur:3})),
-            rains:Array.from({length:RAIN_COUNT}, ()=>({age:9,amp:0,seed:0})) };
+            gustIdx:0,
+            gusts:Array.from({length:GUST_COUNT}, ()=>({sx:9,sy:9,tx:0,ty:0,x:9,y:9,dx:0,dy:0,amp:0,age:9,dur:3,port:0})) };
 const gustArr = new Float32Array(GUST_COUNT*4);
-const rainArr = new Float32Array(RAIN_COUNT*4);
+const gustExArr = new Float32Array(GUST_COUNT*4);
 
 function ensureCtx(){
   if(actx) return;
@@ -949,16 +861,19 @@ function nextEventSlot(list, idxName, idleAge){
   }
   return list[A[idxName]++ % list.length];
 }
+/* eight fixed inlet ports around the frame: E NE N NW W SW S SE.
+   each beat picks one at random and lets a plume in through it. */
+const PORTS = [[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]];
 function spawnGust(b){
   const g = nextEventSlot(A.gusts, 'gustIdx', 2.4);
-  const side = Math.floor(Math.random()*4);
-  const spread = 1.55;
-  if(side===0){ g.sx = -spread; g.sy = (Math.random()-.5)*1.7; }
-  else if(side===1){ g.sx = spread; g.sy = (Math.random()-.5)*1.7; }
-  else if(side===2){ g.sx = (Math.random()-.5)*2.7; g.sy = -1.22; }
-  else { g.sx = (Math.random()-.5)*2.7; g.sy = 1.22; }
-  g.tx = (Math.random()-.5)*.34;
-  g.ty = (Math.random()-.5)*.26;
+  const portI = Math.floor(Math.random()*8);
+  const aspNow = cv.width/Math.max(1, cv.height);
+  const P = PORTS[portI];
+  g.port = portI;
+  g.sx = P[0]*(1.15*aspNow + .12);                /* just outside the frame edge */
+  g.sy = P[1]*1.27;
+  g.tx = (Math.random()-.5)*.4;                   /* heads for the central zone */
+  g.ty = (Math.random()-.5)*.3;
   const len = Math.hypot(g.tx-g.sx, g.ty-g.sy) || 1;
   g.dx = (g.tx-g.sx)/len;
   g.dy = (g.ty-g.sy)/len;
@@ -966,12 +881,6 @@ function spawnGust(b){
   g.amp = .34 + 1.1*Math.min(1, b*1.9);
   g.dur = 2.45 + Math.random()*1.15;
   g.age = 0;
-}
-function spawnRain(b, age=0){
-  const r = nextEventSlot(A.rains, 'rainIdx', 1.2);
-  r.age = age;
-  r.amp = Math.min(1, .18 + b*2.2);
-  r.seed = Math.random()*997.31;
 }
 function analyze(dt, now){
   if(!analyser) return;
@@ -993,8 +902,7 @@ function analyze(dt, now){
     A.windSign *= -1;                         /* lateral drift alternates sides */
     A.windT = A.windSign*(.5 + .9*b);
     A.hue += .14;                             /* palette kick on the downbeat */
-    spawnGust(b);                             /* a separate inward gust for each accent */
-    spawnRain(b);                             /* foreground drops scale with accent weight */
+    spawnGust(b);                             /* a beat opens a random inlet port */
   }
   A.beat *= Math.pow(.012, dt);
   A.windT *= Math.pow(.05, dt);
@@ -1014,13 +922,8 @@ function analyze(dt, now){
     const s = g.amp * attack * decay;
     gustArr[i*4]   = g.x;     gustArr[i*4+1] = g.y;
     gustArr[i*4+2] = g.dx*s;  gustArr[i*4+3] = g.dy*s;
-  }
-  for(let i=0;i<RAIN_COUNT;i++){
-    const r = A.rains[i]; r.age += dt;
-    rainArr[i*4]   = r.age;
-    rainArr[i*4+1] = r.age < 2.85 ? r.amp : 0;
-    rainArr[i*4+2] = r.seed;
-    rainArr[i*4+3] = 0;
+    gustExArr[i*4]   = g.age;  gustExArr[i*4+1] = g.port;
+    gustExArr[i*4+2] = g.sx;   gustExArr[i*4+3] = g.sy;
   }
   /* freq texture (log-ish bin spread) */
   for(let i=0;i<FREQ_W;i++){
@@ -1356,7 +1259,6 @@ const modeBtns = [...document.querySelectorAll('.mode')];
 function setMode(m, fromAuto){
   mode = m; A.beat = Math.max(A.beat, .9); /* transition flash */
   spawnGust(.38);
-  if(m===2){ spawnRain(.78,.08); spawnRain(.32,.72); }
   modeBtns.forEach(b=>b.classList.toggle('active', +b.dataset.m===m));
   if(!fromAuto){ autoCycle && toggleAuto(); }
   if(!fromAuto && innerWidth<=760) setDrawer(false);  /* picked a mode → tuck the drawer away */
@@ -1384,7 +1286,7 @@ addEventListener('touchend', e=>{
 }, {passive:true});
 
 /* ── self-update: manual version check; no background polling during development ── */
-const APP_VERSION = '2.10.0';   /* ⚠ 發佈時同步 bump 此值與 version.json */
+const APP_VERSION = '2.11.0';   /* ⚠ 發佈時同步 bump 此值與 version.json */
 document.getElementById('verLabel').textContent = 'v'+APP_VERSION;
 let latestV = null, checkingUpdate = false;
 const updBtn = document.getElementById('updBtn');
@@ -1439,7 +1341,7 @@ setMode(0);
 
 addEventListener('keydown', e=>{
   if(e.target && e.target.tagName==='INPUT') return;   /* typing a URL must not fire hotkeys */
-  if(e.key>='1' && e.key<='9') setMode(+e.key-1);
+  if(e.key>='1' && e.key<='8') setMode(+e.key-1);
   else if(e.key==='h'||e.key==='H') document.getElementById('ui').classList.toggle('hidden');
   else if(e.key==='a'||e.key==='A') toggleAuto();
   else if(e.key==='f'||e.key==='F'){
@@ -1486,7 +1388,7 @@ function frame(now){
   const t = now/1000;
   analyze(dt, t);
   scroll += dt*(2.2 + 26*A.level);
-  if(autoCycle && now-lastAuto > 28000){ lastAuto=now; setMode((mode+1)%9, true); }
+  if(autoCycle && now-lastAuto > 28000){ lastAuto=now; setMode((mode+1)%8, true); }
   if(now-idleT > 9000) document.getElementById('ui').classList.add('hidden');
 
   resize();
@@ -1504,7 +1406,7 @@ function frame(now){
   const bm = .08 + .55*Math.min(A.vocal, 1.2);
   gl.uniform2f(U.uBreeze, Math.cos(A.breezeAng)*bm, Math.sin(A.breezeAng)*.4*bm);
   gl.uniform4fv(U.uGust, gustArr);
-  gl.uniform4fv(U.uRain, rainArr);
+  gl.uniform4fv(U.uGustEx, gustExArr);
   gl.uniform1i(U.uMode, mode);
   gl.bindTexture(gl.TEXTURE_2D, freqTex);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
