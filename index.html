@@ -185,7 +185,7 @@ h1 .slash{color:var(--magenta);text-shadow:0 0 10px var(--magenta)}
       <button id="playBtn" disabled>▶</button>
       <span id="trackName">— 無訊號 NO CARRIER —</span>
     </div>
-    <div id="hint">iOS：用「麥克風」收 音樂app / Spotify 外放　·　桌面：「系統音訊」可直接擷取分頁聲音</div>
+    <div id="hint">音檔：MP3 / M4A / WAV / FLAC / OGG / Opus / AIFF…（雙引擎解碼）　·　iOS：用「麥克風」收 音樂app / Spotify 外放　·　桌面：「系統音訊」可擷取分頁聲音</div>
   </div>
 
   <div id="meter" class="panel">
@@ -207,7 +207,7 @@ h1 .slash{color:var(--magenta);text-shadow:0 0 10px var(--magenta)}
 
 <div id="toast"></div>
 <div id="err">WEBGL2 UNAVAILABLE — 此瀏覽器不支援 WebGL2，無法啟動視覺核心。</div>
-<input type="file" id="fileIn" accept="audio/*" style="display:none">
+<input type="file" id="fileIn" accept="audio/*,.mp3,.m4a,.m4b,.aac,.mp4,.wav,.wave,.flac,.ogg,.oga,.opus,.webm,.aif,.aiff,.aifc,.caf,.wma,.ape,.wv,.mka,.amr" style="display:none">
 <audio id="player" crossorigin="anonymous" style="display:none"></audio>
 
 <script>
@@ -554,6 +554,8 @@ function detachSource(){
   if(curStream){ curStream.getTracks().forEach(t=>t.stop()); curStream=null; }
   DEMO.stop();
   player.pause();
+  BUF.clear();
+  fileMode = null;
 }
 
 function setSrcUI(id, tag, name){
@@ -689,29 +691,91 @@ function useDemo(){
   document.getElementById('playBtn').disabled=true;
 }
 
+/* ── file playback: dual engine ──
+   engine 1: <audio> streaming (memory-light, covers mp3/m4a/wav/flac…)
+   engine 2: decodeAudioData full decode (rescues ogg/opus/aiff/caf where the element is picky) */
+const AUDIO_EXT = /\.(mp3|m4a|m4b|aac|mp4|wav|wave|flac|ogg|oga|opus|webm|aif|aiff|aifc|caf|wma|ape|wv|mka|amr)$/i;
+function isAudioFile(f){ return (f.type && f.type.startsWith('audio')) || AUDIO_EXT.test(f.name); }
+
+const BUF = {
+  buf:null, node:null, offset:0, startedAt:0, playing:false,
+  play(){
+    if(!this.buf) return;
+    this.stopNode();
+    const n = actx.createBufferSource();
+    n.buffer = this.buf; n.loop = true; n.connect(analyser);
+    n.start(0, this.offset % this.buf.duration);
+    this.node = n; this.startedAt = actx.currentTime - this.offset; this.playing = true;
+  },
+  pause(){
+    if(!this.playing) return;
+    this.offset = (actx.currentTime - this.startedAt) % this.buf.duration;
+    this.stopNode(); this.playing = false;
+  },
+  stopNode(){ if(this.node){ try{this.node.stop();}catch(e){} try{this.node.disconnect();}catch(e){} this.node=null; } },
+  clear(){ this.stopNode(); this.buf=null; this.offset=0; this.playing=false; }
+};
+let fileMode = null;   /* 'element' | 'buffer' | null */
+let curURL = null;
+
+function tryElement(url){
+  return new Promise(res=>{
+    let done=false;
+    const fin=v=>{ if(!done){ done=true; player.removeEventListener('error',onErr); res(v);} };
+    const onErr=()=>fin(false);
+    player.addEventListener('error', onErr);
+    player.src = url; player.loop = true;
+    player.play().then(()=>fin(true)).catch(()=>fin(false));
+    setTimeout(()=>fin(!player.paused), 3500);
+  });
+}
+
+async function loadFile(f){
+  ensureCtx(); actx.resume(); detachSource();
+  if(curURL){ URL.revokeObjectURL(curURL); curURL=null; }
+  if(!mesNode){ mesNode = actx.createMediaElementSource(player); mesNode.connect(analyser); }
+  monitor.gain.value = 1;
+  const pb = document.getElementById('playBtn');
+  setSrcUI('bFile','FILE','DECODING… '+f.name.toUpperCase());
+  curURL = URL.createObjectURL(f);
+  if(await tryElement(curURL)){
+    fileMode = 'element';
+    setSrcUI('bFile','FILE', f.name.toUpperCase());
+    pb.disabled=false; pb.textContent='❚❚';
+    return;
+  }
+  player.removeAttribute('src'); player.load();
+  try{
+    const buf = await actx.decodeAudioData(await f.arrayBuffer());
+    BUF.buf = buf; BUF.offset = 0; BUF.play();
+    fileMode = 'buffer';
+    setSrcUI('bFile','FILE', f.name.toUpperCase()+' · PCM');
+    pb.disabled=false; pb.textContent='❚❚';
+  }catch(err){
+    setSrcUI(null,'STANDBY','— 無訊號 NO CARRIER —');
+    pb.disabled=true; pb.textContent='▶';
+    toast('此瀏覽器無法解碼「'+f.name+'」— 試試 MP3 / M4A / WAV / FLAC / OGG');
+  }
+}
+
 function useFile(){
   ensureCtx(); actx.resume();
   document.getElementById('fileIn').click();
 }
 document.getElementById('fileIn').addEventListener('change', e=>{
-  const f = e.target.files[0]; if(!f) return;
-  detachSource();
-  if(!mesNode) mesNode = actx.createMediaElementSource(player);
-  mesNode.connect(analyser);
-  curSrcNode = mesNode;
-  monitor.gain.value = 1;
-  player.src = URL.createObjectURL(f);
-  player.loop = true;
-  player.play().catch(()=>toast('播放被瀏覽器擋下，請再點一次播放鍵'));
-  setSrcUI('bFile','FILE', f.name.toUpperCase());
-  const pb=document.getElementById('playBtn');
-  pb.disabled=false; pb.textContent='❚❚';
+  const f = e.target.files[0];
+  if(f) loadFile(f);
   e.target.value='';
 });
 document.getElementById('playBtn').addEventListener('click', ()=>{
-  const pb=document.getElementById('playBtn');
-  if(player.paused){ player.play(); pb.textContent='❚❚'; }
-  else{ player.pause(); pb.textContent='▶'; }
+  const pb = document.getElementById('playBtn');
+  if(fileMode==='buffer'){
+    if(BUF.playing){ BUF.pause(); pb.textContent='▶'; }
+    else{ BUF.play(); pb.textContent='❚❚'; }
+  }else{
+    if(player.paused){ player.play(); pb.textContent='❚❚'; }
+    else{ player.pause(); pb.textContent='▶'; }
+  }
 });
 
 async function useMic(){
@@ -756,18 +820,13 @@ document.getElementById('bFile').addEventListener('click', useFile);
 document.getElementById('bMic').addEventListener('click', useMic);
 document.getElementById('bSys').addEventListener('click', useSystem);
 
-/* drag & drop mp3 */
+/* drag & drop any audio file */
 addEventListener('dragover', e=>e.preventDefault());
 addEventListener('drop', e=>{
   e.preventDefault();
-  const f=[...e.dataTransfer.files].find(f=>f.type.startsWith('audio'));
-  if(!f) return;
-  ensureCtx(); actx.resume(); detachSource();
-  if(!mesNode) mesNode = actx.createMediaElementSource(player);
-  mesNode.connect(analyser); curSrcNode=mesNode; monitor.gain.value=1;
-  player.src=URL.createObjectURL(f); player.loop=true; player.play();
-  setSrcUI('bFile','FILE', f.name.toUpperCase());
-  const pb=document.getElementById('playBtn'); pb.disabled=false; pb.textContent='❚❚';
+  const f=[...e.dataTransfer.files].find(isAudioFile);
+  if(f) loadFile(f);
+  else if(e.dataTransfer.files.length) toast('這看起來不是音訊檔');
 });
 
 /* ═══════════════ UI state ═══════════════ */
@@ -796,7 +855,7 @@ addEventListener('keydown', e=>{
     document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
   }
   else if(e.key===' '){ e.preventDefault();
-    if(!player.paused || player.src){ document.getElementById('playBtn').click(); }
+    if(fileMode) document.getElementById('playBtn').click();
   }
 });
 
