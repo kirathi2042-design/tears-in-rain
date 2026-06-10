@@ -14,7 +14,7 @@ Blade Runner 風格的音樂視覺化器。**單一 HTML 檔案**，零相依套
 | 02 | FIRE 火焰 | 低音餵養火焰高度，節拍噴出餘燼 |
 | 03 | RAIN 雨滴玻璃 | 玻璃上的雨滴折射霓虹散景——最 Blade Runner 的一幕 |
 | 04 | LAVA 熔岩燈 | Metaball 熔岩燈，bass 讓蠟球膨脹 |
-| 05 | MIST 森林霧氣 | 多層樹影與會呼吸的霧、光束隨中頻搖曳 |
+| 05 | MIST 雨林晨霧 | 仰望雨林樹冠：crown-shyness 樹冠羞避溝道、枝脈、葉隙炫光、時淡時濃的晨霧 |
 | 06 | ROAD 迷霧道路 | 駛入濃霧的公路，地平線城市天際線就是即時頻譜 |
 
 ## 音源（任選其一）
@@ -51,7 +51,8 @@ python3 -m http.server 8080
 
 - WebGL2 / GLSL ES 3.0，單 pass、單三角形全螢幕 quad，六個場景都是程序化 noise/FBM/metaball，無任何貼圖資產
 - `AnalyserNode`（FFT 2048）拆出 bass / mid / treble / level 四個包絡 + 能量比較式 beat detection，64-bin 頻譜以 R8 texture 餵進 shader
-- 兩個全域動態參數：`uHue`（色相隨時間與高頻緩慢漂移、重拍時跳一階，所有場景調色盤都會變色）、`uWind`（重拍化為側風陣風，左右交替吹歪煙霧／火焰／雨絲／熔岩球）
+- 風場系統：重拍生成**局部陣風**（從隨機方位吹入、高斯衰減、柔和起風與消散包絡，只擾動經過的區域）；人聲中頻化為**漫遊微風**（`uBreeze`，方向緩慢漂移、空間上以 noise 調變成漣漪，絕不整面平移）。煙霧、火焰、雨滴、熔岩、樹冠全部吃同一個風場
+- `uHue` 色相隨時間與高頻緩慢漂移、重拍時跳一階，所有場景調色盤都會變色；道路的天空另有獨立的慢速色彩循環
 - 後處理：filmic tone curve、暗角、膠片顆粒、掃描線、節拍閃光
 - 檔案播放雙引擎：`<audio>` 串流優先（大檔不吃記憶體），元素拒播時自動以 `decodeAudioData` 全檔解碼改走 `AudioBufferSourceNode`（HUD 會標示 `· PCM`），兩者都解不開才報錯
 - 麥克風 / 系統音訊不回送喇叭（無 feedback），檔案與 demo 正常出聲
