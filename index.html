@@ -201,7 +201,7 @@ h1 .slash{color:var(--magenta);text-shadow:0 0 10px var(--magenta)}
     <button class="mode" data-m="1"><span class="num">02</span>FIRE<span class="zh">火焰</span></button>
     <button class="mode" data-m="2"><span class="num">03</span>RAIN<span class="zh">雨滴玻璃</span></button>
     <button class="mode" data-m="3"><span class="num">04</span>LAVA<span class="zh">熔岩燈</span></button>
-    <button class="mode" data-m="4"><span class="num">05</span>MIST<span class="zh">迷霧雨林</span></button>
+    <button class="mode" data-m="4"><span class="num">05</span>WARP<span class="zh">蟲洞航行</span></button>
     <button class="mode" data-m="5"><span class="num">06</span>ROAD<span class="zh">都市道路</span></button>
     <button id="autoBtn">AUTO CYCLE · OFF</button>
   </div>
@@ -313,76 +313,56 @@ vec2 gustField(vec2 q){
   return w;
 }
 
-float smokeJet(vec2 p, vec2 pos, vec2 dir, float amp, float seed){
-  vec2 tangent = vec2(-dir.y, dir.x);
-  vec2 d = p - pos;
-  float along = dot(d, dir);
-  float cross = dot(d, tangent);
-  float beam = exp(-cross*cross*7.5) * smoothstep(.48, -1.75, along);
-  float head = exp(-dot(d,d)*1.15);
-  float wake = exp(-abs(cross)*1.6) * smoothstep(.14, -1.7, along) * (1.-smoothstep(-2.4,-3.4,along));
-  float vort = .5 + .5*sin(along*8.2 + seed*2.1 + uTime*.72 + sin(abs(cross)*7.));
-  return amp * (beam*.55 + head*.92 + wake*vort*.56);
+/* a vortex rotates space around its core by an angle that decays with distance —
+   the swirl is carved straight into the smoke, so the eye can actually see it */
+vec2 vortexWarp(vec2 p, vec2 c, float str, float rad){
+  vec2 d = p - c;
+  float a = str * exp(-dot(d,d)/(rad*rad));
+  float ca = cos(a), sa = sin(a);
+  return c + vec2(ca*d.x - sa*d.y, sa*d.x + ca*d.y);
 }
-vec2 smokeFlow(vec2 p){
-  vec2 flow = vec2(0.);
-  for(int i=0;i<8;i++){
-    vec2 pos = uGust[i].xy;
-    vec2 push = uGust[i].zw;
-    float amp = length(push);
-    vec2 dir = push / max(amp, .001);
-    vec2 tangent = vec2(-dir.y, dir.x);
-    vec2 d = p - pos;
-    float along = dot(d, dir);
-    float cross = dot(d, tangent);
-    float wake = exp(-abs(cross)*1.7) * smoothstep(.05, -2.0, along) * (1.-smoothstep(-2.4,-3.4,along));
-    float alt = sin(along*7.6 + float(i)*2.4 + uTime*.55);
-    float head = exp(-dot(d,d)*1.05);
-    flow += dir * amp * (head*.8 + wake*.42);
-    flow += tangent * amp * wake * alt * .72;        /* Karman-like alternating vortices */
-  }
-  flow += uBreeze * (vnoise(p*.7 + uTime*.08)*.35 + .05);
-  return flow;
-}
-/* ═══ 01 SMOKE 煙霧 — wind-tunnel inflow and Karman vortices ═══ */
+/* ═══ 01 SMOKE 煙霧 — rising smoke threaded with visible vortices ═══ */
 vec3 sceneSmoke(vec2 uv){
-  vec2 p = (uv-.5)*vec2(aspect(),1.)*2.65;
-  vec2 flow = smokeFlow(p);
-  float jet = 0.;
-  for(int i=0;i<8;i++){
-    vec2 push = uGust[i].zw;
-    float amp = length(push);
-    vec2 dir = push / max(amp, .001);
-    jet += smokeJet(p, uGust[i].xy, dir, amp, float(i));
+  vec2 p = (uv-.5)*vec2(aspect(),1.)*2.3;
+  float t = uTime;
+  vec2 q = p;
+  /* ambient vortices: rise through the frame, alternating spin, fade in/out */
+  for(int i=0;i<5;i++){
+    float fi = float(i);
+    float sgn = mod(fi,2.)<.5 ? 1. : -1.;
+    float cyc = t*.022*(1.+.21*fi) + fi*.41;
+    float ph = fract(cyc);
+    vec2 c = vec2((h11(fi*7.31+floor(cyc))-.5)*2.4 + sin(ph*6.28+fi)*.15,
+                  mix(-1.45,1.45,ph));
+    float amp = sin(ph*3.14159);
+    q = vortexWarp(q, c, sgn*(2.1+1.4*uEnergy)*amp, .58+.1*fi);
   }
-  vec2 adv = p - flow*.72;
-  float ribbon = fbm(adv*1.65 + vec2(uTime*.028, -uTime*.018));
-  float filament = fbm(adv*4.6 + vec2(ribbon*2.1, -ribbon*1.7));
-  float fine = fbm(adv*11. + vec2(filament*2.5, uTime*.05));
-  float density = smoothstep(.08,.78, jet) * (.55 + .5*ribbon) + smoothstep(.58,.96,filament)*jet*.38;
-  float centreShear = exp(-dot(p,p)*1.35) * smoothstep(.1,1.25,jet);
-  vec3 bg = mix(vec3(.004,.011,.02), vec3(.018,.02,.036), uv.y);
-  vec3 cy = vec3(.26,.86,1.);
-  vec3 milk = vec3(.78,.94,1.);
-  vec3 mg = vec3(1.,.18,.72);
+  /* beats spin up fresh swirls where the gust events land */
+  for(int i=0;i<8;i++){
+    float gs = length(uGust[i].zw);
+    if(gs > .02){
+      float sgn = uGust[i].z + uGust[i].w > 0. ? 1. : -1.;
+      q = vortexWarp(q, uGust[i].xy, sgn*gs*2.4, .5);
+    }
+  }
+  q += uBreeze*(vnoise(p*1.3+t*.2)*.6+.2)*.4;
+  /* rising smoke body sampled through the twisted space */
+  vec2 drift = vec2(0., -t*.16);
+  float body = fbm(q*1.5 + drift);
+  float mid  = fbm(q*3.1 + drift*1.7 + vec2(body*1.4, 0.));
+  float fine = fbm(q*6.4 + drift*2.3 + vec2(mid*1.8, 7.));
+  /* filament contrast: difference of scales → streaky wisps trace each swirl */
+  float wisp = clamp(body*1.25 + mid*.45 - fine*.62 + .08, 0., 1.);
+  float column = smoothstep(1.55,.25, abs(p.x) + uv.y*.4);   /* loose, wide column — no hot core */
+  float density = smoothstep(.18,.85, wisp) * (.45+.55*column);
+  vec3 bg = mix(vec3(.005,.012,.022), vec3(.015,.02,.035), uv.y);
+  vec3 cy = vec3(.2,.85,1.), mg = vec3(1.,.2,.78);
   vec3 col = bg;
-  col += cy * density * (.34+.45*uLevel);
-  col += milk * pow(max(0.,density),2.1) * (.22+.18*fine);
-  col += mg * smoothstep(.62,1.15,jet) * (.12+.24*uTreble);
-  col += vec3(.72,.95,1.) * centreShear * (.18+.45*uBeat);
-  for(int i=0;i<8;i++){
-    vec2 push = uGust[i].zw;
-    float amp = length(push);
-    vec2 dir = push / max(amp, .001);
-    vec2 tangent = vec2(-dir.y, dir.x);
-    vec2 d = p - uGust[i].xy;
-    float along = dot(d, dir);
-    float cross = dot(d, tangent);
-    float laminar = exp(-cross*cross*34.) * smoothstep(.36,-2.6,along);
-    float bands = .55 + .45*sin(along*18. + float(i)*3.1);
-    col += vec3(.55,.92,1.) * laminar * bands * amp * .16; /* visible wind-tunnel streaks */
-  }
-  return hueRot(col, uHue*.45);
+  col += cy * density * (.4+.55*uLevel);
+  col += vec3(.8,.95,1.) * pow(density,2.4) * (.3+.25*fine);   /* bright wisp cores */
+  col += mg * smoothstep(.55,.95,mid) * density * (.18+.3*uTreble);
+  col += cy * pow(density,3.) * uBeat * .5;
+  return hueRot(col, uHue*.5);
 }
 
 /* ═══ 02 FIRE 火焰 — colour temperature and intensity, no spark field ═══ */
@@ -531,122 +511,50 @@ vec3 sceneLava(vec2 uv){
   return col;
 }
 
-/* ═══ 05 MIST 迷霧雨林 — canopy, leaves, low fog, no chimney silhouettes ═══ */
-float leafShape(vec2 p, float a, float elong){
-  mat2 r = mat2(cos(a),-sin(a),sin(a),cos(a));
-  vec2 q = r*p;
-  float body = length(vec2(q.x*elong, q.y)) - .13;
-  float cut = smoothstep(.02,-.01, body) * smoothstep(-.12,.08,q.x);
-  return cut;
-}
-float broadLeaf(vec2 p, float a, float scale, float bend){
-  mat2 r = mat2(cos(a),-sin(a),sin(a),cos(a));
-  vec2 q = r*p/scale;
-  q.y += bend*q.x*q.x;
-  float blade = length(vec2(q.x*1.9, q.y*.72)) - .19;
-  float taper = smoothstep(-.19,.08,q.x) * smoothstep(.25,-.08,q.x);
-  return smoothstep(.018,-.012, blade) * taper;
-}
-float canopyLayer(vec2 uv, float fi, float drift){
-  float x = uv.x*aspect();
-  float ridge = .42 + fi*.07 + fbm(vec2(x*(.75+fi*.18)+drift, fi*4.7))*.18;
-  float crown = smoothstep(.16,.0, abs(uv.y-ridge));
-  float under = smoothstep(ridge-.03, ridge-.22, uv.y) * smoothstep(.04,.24,uv.y);
-  float blobs = fbm(vec2(x*(2.1+fi*.45)+drift*.7, uv.y*5. + fi*3.));
-  float mass = max(crown, under*.42) * smoothstep(.18,.72,blobs);
-  return mass;
-}
-float leafLayer(vec2 uv, float fi, float drift){
-  vec2 p = uv*vec2(aspect(),1.);
-  float scale = 5. + fi*2.5;
-  vec2 gp = p*scale + vec2(drift, fi*11.);
-  vec2 id = floor(gp);
-  vec2 f = fract(gp)-.5;
-  vec2 rnd = h22(id+fi*13.);
-  float a = mix(-1.2,1.2,rnd.x) + .25*sin(uTime*.05+fi);
-  float leaf = leafShape(f + (rnd-.5)*.25, a, mix(1.4,2.5,rnd.y));
-  float keep = step(.58, rnd.x) * smoothstep(.28,.92,uv.y);
-  return leaf*keep;
-}
-float foregroundLeaves(vec2 uv){
-  vec2 p = uv*vec2(aspect(),1.);
-  float m = 0.;
-  for(int i=0;i<10;i++){
+/* ═══ 05 WARP 蟲洞航行 — hyperspace tunnel, star streaks, spectrum mandala ═══ */
+vec3 sceneWarp(vec2 uv){
+  vec2 p = (uv-.5)*vec2(aspect(),1.);
+  p += vec2(sin(uTime*.16), cos(uTime*.12))*.05 + uBreeze*.04;   /* drifting flight path */
+  float r = max(length(p), 1e-4);
+  float ang = atan(p.y, p.x);
+  float z = uScroll*.05;                        /* travel distance follows the music */
+  float depth = .22/r;                          /* tunnel projection */
+  float twist = depth*.32 + uTime*.03;          /* the wormhole spirals */
+  float a01 = fract((ang+twist)/6.2832);
+  /* tunnel wall filaments */
+  vec2 tc = vec2(a01*5., depth + z);
+  float wall  = fbm(tc*vec2(1.6,.9));
+  float wall2 = fbm(tc*vec2(3.4,1.9)+7.3);
+  float fog = exp(-depth*.34);                  /* deep centre falls to black */
+  vec3 cy = vec3(.1,.8,1.), mg = vec3(1.,.18,.8);
+  vec3 col = vec3(.004,.006,.018);
+  float filaments = smoothstep(.42,.88, wall+wall2*.35);
+  col += mix(cy,mg,wall2) * filaments * fog * (.3+.75*uLevel);
+  col += vec3(1.,.55,.18) * pow(wall2,7.) * fog * (.2+.8*uMid);   /* amber plasma knots */
+  /* spectrum mandala: the EQ wraps around the tunnel mouth */
+  float aq = (floor(a01*48.)+.5)/48.;
+  float spec = texture(uFreq, vec2(abs(aq*2.-1.), .5)).r;
+  vec3 ribCol = hueRot(vec3(1.,.25,.7), uHue);
+  col += ribCol * spec*spec * smoothstep(.55,.2,r) * smoothstep(.05,.18,r) * 1.5;
+  /* hyperspace star streaks — they stretch as the music gets loud */
+  for(int i=0;i<2;i++){
     float fi = float(i);
-    float side = step(.5, h11(fi*4.3));
-    vec2 anchor = vec2(mix(-.10, aspect()+.10, side), mix(.52,1.05,h11(fi*7.1)));
-    vec2 q = p - anchor;
-    float angle = mix(-.85,.85,h11(fi*9.9)) + (side>.5 ? -1.15 : 1.15) + .06*sin(uTime*.035+fi);
-    float leaf = broadLeaf(q, angle, .72+.28*h11(fi*2.4), mix(-.28,.28,h11(fi*5.2)));
-    m = max(m, leaf);
+    float lanes = 26. + fi*22.;
+    float la = floor(a01*lanes);
+    float lf = fract(a01*lanes)-.5;
+    float sh = h11(la*3.7+fi*13.1);
+    float sz = depth*(.5+fi*.4) + z*(2.2+fi*1.4) + sh*9.;
+    float sfr = fract(sz)-.5;
+    float len = .12 + uLevel*.3;
+    float star = exp(-lf*lf*90.) * exp(-sfr*sfr/(len*len)) * step(.6, sh);
+    col += mix(vec3(.7,.9,1.), vec3(1.,.8,.5), h11(la+fi*7.)) * star * fog * (.5+.8*uLevel);
   }
-  for(int i=0;i<11;i++){
-    float fi = float(i);
-    vec2 base = vec2(mix(.03,aspect()-.03,h11(fi*6.4)), .02+.09*h11(fi*3.));
-    vec2 q = p - base;
-    float a = -1.1 + fi*.36 + .08*sin(uTime*.06+fi);
-    m = max(m, broadLeaf(q*vec2(1.05,1.85), a, .6+.2*h11(fi*8.1), .18)*.86);
-  }
-  for(int i=0;i<12;i++){
-    float fi = float(i);
-    vec2 base = vec2(mix(.08,aspect()-.08,h11(fi*2.7)), 1.02+.08*h11(fi*5.1));
-    vec2 q = p - base;
-    float a = -2.55 + .55*h11(fi*4.8) + .05*sin(uTime*.025+fi);
-    m = max(m, broadLeaf(q, a, .55+.18*h11(fi*3.6), -.22)*.78);
-  }
-  return m;
-}
-vec3 sceneForest(vec2 uv){
-  vec3 fogC = vec3(.38,.72,.62);
-  vec2 w = gustField((uv-.5)*vec2(aspect(),1.)*1.8);
-  float sweep = .5 + .5*sin(uTime*.01);
-  vec2 sun = vec2(mix(.18,.82,sweep), .68 + .05*sin(uTime*.014));
-  float sd = length((uv-sun)*vec2(aspect(),1.));
-  vec3 col = mix(vec3(.006,.018,.014), vec3(.025,.075,.064), smoothstep(.0,1.,uv.y));
-  col += vec3(.08,.03,.16)*pow(max(0.,uv.y),1.7)*.5;
-  col += vec3(.24,.7,.6)*pow(max(0.,1.-sd),2.)*(.32+.4*uMid);
-  col += vec3(.98,.82,.48)*pow(max(0.,1.-sd*1.35),5.)*.55;
-  float ang = atan(uv.y-sun.y, (uv.x-sun.x)*aspect());
-  float rays = pow(abs(sin(ang*5.5 + uTime*.055)), 7.) * pow(max(0.,1.-sd*.9),2.);
-  rays += .42*pow(abs(sin(ang*12. - uTime*.04)), 11.) * pow(max(0.,1.-sd*.95),2.);
-  col += vec3(.55,.96,.74)*rays*(.15+.46*uMid);
-  col += vec3(.7,.28,1.)*rays*rays*(.08+.22*uTreble);
-  float angledGlow = exp(-abs((uv.y-sun.y) + (uv.x-sun.x)*.42)*13.) * exp(-sd*1.65);
-  col += vec3(.65,.98,1.)*angledGlow*(.055+.16*uMid);
-  float veil = fbm(vec2(uv.x*1.7 + uTime*.012 + w.x*.25, uv.y*6. - uTime*.018 + w.y*.18));
-  col = mix(col, fogC*(.32+.2*uLevel), smoothstep(.38,.9,veil)*.14);
-  float overhead = smoothstep(.46,.88,uv.y) * smoothstep(.32,.78,fbm(vec2(uv.x*aspect()*1.35 + uTime*.004, uv.y*2.2)));
-  col = mix(col, vec3(.004,.02,.014), overhead*.44);
-  float topCrown = smoothstep(.62,.9,uv.y) * smoothstep(.25,.62,fbm(vec2(uv.x*aspect()*2.4-uTime*.003, uv.y*3.1)));
-  float sideCrown = (smoothstep(.42,.02,uv.x) + smoothstep(.58,.98,uv.x)) * smoothstep(.35,.9,uv.y)
-                  * smoothstep(.28,.72,fbm(vec2(uv.x*aspect()*3.2, uv.y*3.4+uTime*.005)));
-  col = mix(col, vec3(.002,.012,.008), clamp(topCrown*.72 + sideCrown*.56,0.,.82));
-  float leafTexture = leafLayer(uv, 1.4, -uTime*.018) + leafLayer(uv, 2.7, uTime*.012);
-  col = mix(col, vec3(.004,.018,.012), leafTexture*.35*smoothstep(.33,.96,uv.y));
-  for(int i=0;i<5;i++){
-    float fi = float(i);
-    float drift = uTime*.006*(fi+.6) + w.x*.004;
-    float L = canopyLayer(uv, 4.-fi, drift);
-    float depth = fi/4.;
-    vec3 shade = mix(vec3(.012,.04,.03), vec3(.004,.016,.012), depth);
-    vec3 layerCol = mix(shade, fogC*(.48+.28*uMid), depth*.55 + .22*uLevel);
-    col = mix(col, layerCol, L*(.72+.12*fi));
-  }
-  float lowMist = smoothstep(.42,.02,uv.y) * (fbm(vec2(uv.x*2.2+uTime*.016+w.x*.28, uv.y*4.5))*.8+.2);
-  for(int i=0;i<3;i++){
-    float fi = float(i);
-    float ridge = .12 + fi*.09 + fbm(vec2(uv.x*aspect()*(1.0+fi*.35)+fi*6.1, fi*2.2))*.08;
-    float undergrowth = smoothstep(ridge+.018, ridge-.04, uv.y);
-    vec3 gc = mix(vec3(.006,.026,.018), vec3(.02,.075,.055), fi/2.);
-    col = mix(col, gc, undergrowth*(.42+.12*fi));
-  }
-  col = mix(col, fogC*(.42+.24*uLevel), lowMist*.32);
-  float fg = foregroundLeaves(uv);
-  col = mix(col, vec3(.001,.009,.006), fg*.78);
-  float prism = smoothstep(.74,.97,fbm(vec2(uv.x*5.5-uTime*.01, uv.y*4.2+uTime*.013)));
-  col += vec3(.16,.42,.34)*prism*.12 + vec3(.35,.08,.38)*prism*.06;
-  col += vec3(.58,.95,.76)*uBeat*.045;
-  return hueRot(col, uHue*.22);
+  /* beat: a ring of light races outward from the core */
+  float ringR = mix(.95,.06, uBeat);
+  col += vec3(.55,.9,1.)*exp(-pow((r-ringR)*24.,2.))*uBeat*.8;
+  col += vec3(1.,.95,.9)*uBeat*exp(-r*10.)*.6;            /* core flash */
+  col += cy*exp(-r*5.5)*.08;                              /* faint event-horizon glow */
+  return hueRot(col, uHue*.4);
 }
 
 /* ═══ 06 ROAD 都市道路 — dystopian cyberpunk highway, wet neon and skyline fog ═══ */
@@ -750,7 +658,7 @@ void main(){
   else if (uMode==1) col = sceneFire(uv);
   else if (uMode==2) col = sceneRain(uv);
   else if (uMode==3) col = sceneLava(uv);
-  else if (uMode==4) col = sceneForest(uv);
+  else if (uMode==4) col = sceneWarp(uv);
   else               col = sceneRoad(uv);
   /* filmic-ish curve + grade */
   col = 1.-exp(-col*1.65);
@@ -1286,7 +1194,7 @@ addEventListener('touchend', e=>{
 }, {passive:true});
 
 /* ── self-update: manual version check; no background polling during development ── */
-const APP_VERSION = '2.7.1';   /* ⚠ 發佈時同步 bump 此值與 version.json */
+const APP_VERSION = '2.8.0';   /* ⚠ 發佈時同步 bump 此值與 version.json */
 document.getElementById('verLabel').textContent = 'v'+APP_VERSION;
 let latestV = null, checkingUpdate = false;
 const updBtn = document.getElementById('updBtn');
