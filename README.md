@@ -1,0 +1,58 @@
+# TEARS // RAIN — 雨中之淚
+
+> *"All those moments will be lost in time, like tears in rain."*
+
+Blade Runner 風格的音樂視覺化器。**單一 HTML 檔案**，零相依套件，純 WebGL2 fragment shader + Web Audio API。打開就能用。
+
+**Live Demo → https://kirathi2042-design.github.io/tears-in-rain/**
+
+## 六種視覺核心
+
+| # | 模式 | 說明 |
+|---|------|------|
+| 01 | SMOKE 煙霧 | Domain-warped FBM 霓虹煙霧，低頻推動亂流 |
+| 02 | FIRE 火焰 | 低音餵養火焰高度，節拍噴出餘燼 |
+| 03 | RAIN 雨滴玻璃 | 玻璃上的雨滴折射霓虹散景——最 Blade Runner 的一幕 |
+| 04 | LAVA 熔岩燈 | Metaball 熔岩燈，bass 讓蠟球膨脹 |
+| 05 | MIST 森林霧氣 | 多層樹影與會呼吸的霧、光束隨中頻搖曳 |
+| 06 | ROAD 迷霧道路 | 駛入濃霧的公路，地平線城市天際線就是即時頻譜 |
+
+## 音源（任選其一）
+
+- **FILE 音檔** — 載入本機 mp3 / m4a / flac / wav，也可直接拖放到視窗
+- **MIC 麥克風** — 用任何裝置外放音樂（iOS 音樂 app、Spotify、黑膠、現場樂器），麥克風收音即時驅動視覺。**iPhone / iPad 上聽串流就用這個模式**（串流 DRM 音訊無法直接解碼，這是通用解法）
+- **SYSTEM 系統音訊** — 桌面 Chrome / Edge 透過分頁擷取（記得勾「分享分頁音訊」），可直接吃 Spotify Web Player / YouTube 的聲音，零延遲零雜訊
+- **DEMO 訊號** — 內建 96 BPM synthwave 迴圈（kick + acid bass + pad），開頁即有東西看
+
+## 操作
+
+| 鍵 | 功能 |
+|----|------|
+| `1`–`6` | 切換視覺模式 |
+| `A` | 自動輪播（每 28 秒換景） |
+| `H` | 隱藏 / 顯示 HUD（閒置 9 秒也會自動隱藏） |
+| `F` | 全螢幕 |
+| `Space` | 播放 / 暫停音檔 |
+
+## 本機執行
+
+```bash
+# 直接開檔案即可（demo / 檔案 / 拖放都能用）
+open index.html
+
+# 麥克風與系統音訊需要 secure context，起個 server：
+python3 -m http.server 8080
+# → http://localhost:8080
+```
+
+## 技術備忘
+
+- WebGL2 / GLSL ES 3.0，單 pass、單三角形全螢幕 quad，六個場景都是程序化 noise/FBM/metaball，無任何貼圖資產
+- `AnalyserNode`（FFT 2048）拆出 bass / mid / treble / level 四個包絡 + 能量比較式 beat detection，64-bin 頻譜以 R8 texture 餵進 shader
+- 後處理：filmic tone curve、暗角、膠片顆粒、掃描線、節拍閃光
+- 麥克風 / 系統音訊不回送喇叭（無 feedback），檔案與 demo 正常出聲
+- iOS Safari 相容：等待使用者手勢後才 `AudioContext.resume()`
+
+## License
+
+MIT
