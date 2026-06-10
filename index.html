@@ -239,7 +239,8 @@ out vec4 fragColor;
 uniform vec2  uRes;
 uniform float uTime, uScroll;
 uniform float uBass, uMid, uTreble, uLevel, uBeat;
-uniform float uHue, uWind;
+uniform float uHue, uWind, uEnergy;
+uniform vec4  uGust[4];
 uniform int   uMode;
 uniform sampler2D uFreq;
 
@@ -263,16 +264,28 @@ vec3 hueRot(vec3 c, float a){
   float ca = cos(a), sa = sin(a);
   return max(c*ca + cross(k,c)*sa + k*dot(k,c)*(1.-ca), 0.);
 }
+/* localized gusts: each beat blows in from a random corner with a soft
+   attack/decay envelope — stirs the medium where it passes, never the whole frame */
+vec2 gustField(vec2 q){
+  vec2 w = vec2(0.);
+  for(int i=0;i<4;i++){
+    vec2 d = q - uGust[i].xy;
+    w += uGust[i].zw * exp(-dot(d,d)*1.7);
+  }
+  return w;
+}
 
 /* ═══ 01 SMOKE 煙霧 — domain-warped neon smoke ═══ */
 vec3 sceneSmoke(vec2 uv){
   vec2 p = (uv-.5)*vec2(aspect(),1.)*2.4;
-  p.x -= uWind*(uv.y+.4)*1.1;          /* beat = gust of side wind */
   float t = uTime*.22;
-  vec2 q = vec2(fbm(p+vec2(0.,-t)), fbm(p+vec2(5.2,1.3)-t*.6));
+  /* gusts ripple the smoke locally; noise modulation breaks them into eddies */
+  vec2 w = gustField(p);
+  w *= .65 + .5*vnoise(p*2.6 + uTime*.8);
+  vec2 q = vec2(fbm(p+vec2(0.,-t)+w*.7), fbm(p+vec2(5.2,1.3)-t*.6+w*.5));
   vec2 r = vec2(fbm(p+3.2*q+vec2(1.7,9.2)+t*.32),
                 fbm(p+3.2*q+vec2(8.3,2.8)-t*.21));
-  float f = fbm(p+3.0*r + vec2(0., uBass*1.4));
+  float f = fbm(p+3.0*r + w*.9 + vec2(0., uEnergy*.9));
   vec3 col = vec3(.015,.035,.06);
   vec3 cy = vec3(.0,.85,1.), mg = vec3(1.,.16,.84);
   col = mix(col, cy*.62, smoothstep(.28,.86,f)*(.32+uLevel*1.25));
@@ -288,11 +301,13 @@ vec3 sceneFire(vec2 uv){
   vec2 p = vec2((uv.x-.5)*aspect()*1.7, uv.y);
   float t = uTime*1.6;
   float edge = 1.-smoothstep(.4,1.3,abs(p.x));
-  float wx = uWind*uv.y*3.4;           /* beat-wind shears the flame */
-  float n = fbm(vec2(p.x*3.0 - wx, p.y*4.2 - t));
-  n += .55*fbm(vec2(p.x*7.5+9. - wx*1.6, p.y*9.5 - t*1.9));
+  /* gusts bend parts of the flame; height breathes with the slow energy envelope */
+  vec2 w = gustField(vec2(p.x, uv.y*2.-1.));
+  float wx = w.x*(.3+uv.y*1.2)*2.0;
+  float n = fbm(vec2(p.x*3.0 - wx, p.y*4.2 - t - w.y*.5));
+  n += .55*fbm(vec2(p.x*7.5+9. - wx*1.7, p.y*9.5 - t*1.9));
   n /= 1.55;
-  float h = uv.y*1.3/(.36 + uBass*1.25) + (1.-edge)*.8;
+  float h = uv.y*1.3/(.34 + uEnergy*1.05) + (1.-edge)*.8;
   float flame = clamp(n*1.7 - h + .12, 0., 1.);
   flame = pow(flame, 1.45);
   vec3 col = vec3(0.);
@@ -304,7 +319,7 @@ vec3 sceneFire(vec2 uv){
   for(int i=0;i<3;i++){
     float fi = float(i);
     float sc = 14.+fi*9.;
-    vec2 gp = vec2(uv.x*sc - uWind*uv.y*sc*.5, uv.y*sc - uTime*(2.6+fi*1.7+uBass*7.));
+    vec2 gp = vec2(uv.x*sc + w.x*uv.y*sc*.35, uv.y*sc - uTime*(2.6+fi*1.7+uEnergy*6.));
     vec2 id = floor(gp); vec2 fr = fract(gp)-.5;
     vec2 off = (h22(id+fi*31.)-.5)*.7;
     float life = h11(id.x*7.+id.y*3.+fi);
@@ -312,7 +327,7 @@ vec3 sceneFire(vec2 uv){
     col += vec3(1.,.55,.12)*em*(1.2+uBeat*2.);
   }
   /* heat haze glow at base */
-  col += vec3(.6,.12,.02)*pow(1.-uv.y,3.)*edge*(.4+uBass*.8);
+  col += vec3(.6,.12,.02)*pow(1.-uv.y,3.)*edge*(.4+uEnergy*.7);
   return hueRot(col, uHue*.55);        /* slow drift toward plasma hues */
 }
 
@@ -562,7 +577,7 @@ gl.enableVertexAttribArray(aPos);
 gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
 
 const U = {};
-for(const n of ['uRes','uTime','uScroll','uBass','uMid','uTreble','uLevel','uBeat','uHue','uWind','uMode','uFreq'])
+for(const n of ['uRes','uTime','uScroll','uBass','uMid','uTreble','uLevel','uBeat','uHue','uWind','uEnergy','uGust','uMode','uFreq'])
   U[n] = gl.getUniformLocation(prog, n);
 
 /* frequency texture: 64 bins */
@@ -596,7 +611,10 @@ const player = document.getElementById('player');
 
 const A = { bass:0, mid:0, treble:0, level:0, beat:0,
             bassAvg:0.01, lastBeat:0,
-            hue:0, wind:0, windSign:1 };
+            hue:0, wind:0, windT:0, windSign:1, energy:0,
+            gustIdx:0,
+            gusts:[0,1,2,3].map(()=>({x:9,y:9,dx:0,dy:0,amp:0,age:9})) };
+const gustArr = new Float32Array(16);
 
 function ensureCtx(){
   if(actx) return;
@@ -647,13 +665,28 @@ function analyze(dt, now){
   A.bassAvg += (b - A.bassAvg)*Math.min(1, dt*1.4);
   if(b > A.bassAvg*1.32 && b > .06 && now-A.lastBeat > .22){
     A.beat = 1; A.lastBeat = now;
-    A.windSign *= -1;                         /* gusts alternate sides */
-    A.wind = A.windSign*(.5 + .9*b);
+    A.windSign *= -1;                         /* lateral drift alternates sides */
+    A.windT = A.windSign*(.5 + .9*b);
     A.hue += .14;                             /* palette kick on the downbeat */
+    /* spawn a localized gust blowing in from a random corner */
+    const g = A.gusts[A.gustIdx++ % 4];
+    const ang = Math.random()*6.2832;
+    g.dx = Math.cos(ang); g.dy = Math.sin(ang)*.7;
+    g.x = -g.dx*1.4 + (Math.random()-.5)*1.2;
+    g.y = -g.dy*1.1 + (Math.random()-.5);
+    g.amp = .5 + .9*b; g.age = 0;
   }
   A.beat *= Math.pow(.012, dt);
-  A.wind *= Math.pow(.05, dt);                /* gust dies down */
+  A.windT *= Math.pow(.05, dt);
+  A.wind += (A.windT - A.wind)*Math.min(1, dt*9.);    /* soft attack — no snap */
+  A.energy += (l*1.5 - A.energy)*Math.min(1, dt*2.2); /* slow breathing envelope */
   A.hue += dt*(.05 + .2*A.treble);            /* constant slow colour drift */
+  for(let i=0;i<4;i++){
+    const g = A.gusts[i]; g.age += dt;
+    const s = g.amp * Math.min(1, g.age/.13) * Math.exp(-g.age/.8);
+    gustArr[i*4]   = g.x;     gustArr[i*4+1] = g.y;
+    gustArr[i*4+2] = g.dx*s;  gustArr[i*4+3] = g.dy*s;
+  }
   /* freq texture (log-ish bin spread) */
   for(let i=0;i<FREQ_W;i++){
     const f = Math.floor(Math.pow(i/FREQ_W, 1.6)*330)+1;
@@ -1025,6 +1058,8 @@ function frame(now){
   gl.uniform1f(U.uBeat, A.beat);
   gl.uniform1f(U.uHue, A.hue % 6.2832);
   gl.uniform1f(U.uWind, A.wind);
+  gl.uniform1f(U.uEnergy, Math.min(A.energy, 1.2));
+  gl.uniform4fv(U.uGust, gustArr);
   gl.uniform1i(U.uMode, mode);
   gl.bindTexture(gl.TEXTURE_2D, freqTex);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
