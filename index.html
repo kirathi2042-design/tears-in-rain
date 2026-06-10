@@ -67,6 +67,11 @@ h1 .slash{color:var(--magenta);text-shadow:0 0 10px var(--magenta)}
 .rec{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--magenta);
   box-shadow:0 0 8px var(--magenta);margin-right:6px;animation:blink 1.4s infinite}
 @keyframes blink{0%,55%{opacity:1}56%,100%{opacity:.15}}
+#verLabel{color:var(--dim)}
+#updBtn{display:none;background:rgba(255,176,0,.08);border:1px solid var(--amber);color:var(--amber);
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.15em;padding:3px 8px;cursor:pointer;
+  margin-left:8px;animation:pulse 2s infinite;vertical-align:middle}
+#drawerTab{display:none}
 
 /* ── mode selector (left) ───────────────────────── */
 #modes{position:absolute;left:calc(16px + env(safe-area-inset-left));top:50%;transform:translateY(-50%);
@@ -141,12 +146,25 @@ h1 .slash{color:var(--magenta);text-shadow:0 0 10px var(--magenta)}
   font-size:13px;letter-spacing:.2em;text-align:center;padding:30px;background:#04070c}
 
 @media (max-width:760px){
-  #modes{top:auto;bottom:calc(118px + env(safe-area-inset-bottom));transform:none;flex-direction:row;flex-wrap:wrap;
-    gap:4px;max-width:calc(100vw - 32px);padding:8px}
-  #modes .label{display:none}
-  .mode{padding:6px 8px;font-size:11px}.mode .zh{display:none}
+  /* mode selector becomes a slide-out side drawer */
+  #modes{position:fixed;left:0;top:50%;width:172px;transform:translate(-110%,-50%);
+    transition:transform .28s ease;z-index:45;max-height:72vh;overflow-y:auto}
+  body.drawer-open #modes{transform:translate(0,-50%)}
+  #drawerTab{display:flex;align-items:center;justify-content:center;position:fixed;left:0;top:50%;
+    transform:translateY(-50%);z-index:46;width:30px;height:72px;background:var(--panel);
+    border:1px solid var(--line);border-left:none;color:var(--cyan);font-size:12px;cursor:pointer;
+    font-family:var(--mono);transition:left .28s ease;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+    box-shadow:0 0 14px rgba(0,229,255,.18)}
+  body.drawer-open #drawerTab{left:172px}
+  .mode{padding:10px 10px;font-size:13px}
   #meter{display:none}
-  #trackName{max-width:170px}
+  #hint{display:none}
+  #trackName{max-width:150px}
+  #dock{max-width:calc(100vw - 32px);padding:10px 12px}
+  #playBtn,#rateBtn{height:30px}
+  #playBtn{width:34px}
+  #seek{height:16px}
+  header h1{font-size:17px}
 }
 </style>
 </head>
@@ -167,6 +185,7 @@ h1 .slash{color:var(--magenta);text-shadow:0 0 10px var(--magenta)}
     <div id="clock">00:00:00</div>
     <div><span class="rec"></span>SIGNAL <span id="srcTag">STANDBY</span></div>
     <div>FPS <span id="fps">--</span> · <span id="res">--</span></div>
+    <div>CORE <span id="verLabel">v—</span><button id="updBtn">⟳ UPDATE</button></div>
   </div>
 
   <div id="modes" class="panel">
@@ -179,6 +198,7 @@ h1 .slash{color:var(--magenta);text-shadow:0 0 10px var(--magenta)}
     <button class="mode" data-m="5"><span class="num">06</span>ROAD<span class="zh">迷霧道路</span></button>
     <button id="autoBtn">AUTO CYCLE · OFF</button>
   </div>
+  <button id="drawerTab" aria-label="開關視覺選單">▶</button>
 
   <div id="dock" class="panel">
     <div class="label">AUDIO SOURCE 音源</div>
@@ -1010,7 +1030,54 @@ function setMode(m, fromAuto){
   mode = m; A.beat = Math.max(A.beat, .9); /* transition flash */
   modeBtns.forEach(b=>b.classList.toggle('active', +b.dataset.m===m));
   if(!fromAuto){ autoCycle && toggleAuto(); }
+  if(!fromAuto && innerWidth<=760) setDrawer(false);  /* picked a mode → tuck the drawer away */
 }
+
+/* ── mobile: slide-out drawer for the mode selector ── */
+function setDrawer(open){
+  document.body.classList.toggle('drawer-open', open);
+  document.getElementById('drawerTab').textContent = open ? '◀' : '▶';
+  pokeUI();
+}
+document.getElementById('drawerTab').addEventListener('click', ()=>
+  setDrawer(!document.body.classList.contains('drawer-open')));
+let swX=null, swY=null;
+addEventListener('touchstart', e=>{ const t=e.touches[0]; swX=t.clientX; swY=t.clientY; }, {passive:true});
+addEventListener('touchend', e=>{
+  if(swX===null) return;
+  const t=e.changedTouches[0];
+  const dx=t.clientX-swX, dy=Math.abs(t.clientY-swY);
+  if(dy<60){
+    if(swX<32 && dx>50) setDrawer(true);                       /* swipe in from left edge */
+    else if(dx<-50 && document.body.classList.contains('drawer-open')) setDrawer(false);
+  }
+  swX=null;
+}, {passive:true});
+
+/* ── self-update: poll version.json, offer one-tap refresh when GitHub has a newer build ── */
+const APP_VERSION = '2.5.0';   /* ⚠ 發佈時同步 bump 此值與 version.json */
+document.getElementById('verLabel').textContent = 'v'+APP_VERSION;
+let latestV = null;
+async function checkUpdate(){
+  try{
+    const r = await fetch('version.json?ts='+Date.now(), {cache:'no-store'});
+    if(!r.ok) return;
+    const j = await r.json();
+    if(j.version && j.version !== APP_VERSION){
+      latestV = j.version;
+      const b = document.getElementById('updBtn');
+      b.style.display = 'inline-block';
+      b.textContent = '⟳ UPDATE v'+j.version;
+    }
+  }catch(e){ /* offline / file:// — stay quiet */ }
+}
+document.getElementById('updBtn').addEventListener('click', ()=>{
+  const base = location.pathname;
+  location.replace(base + '?v=' + encodeURIComponent(latestV || Date.now()));
+});
+checkUpdate();
+setInterval(checkUpdate, 10*60*1000);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) checkUpdate(); });
 modeBtns.forEach(b=>b.addEventListener('click', ()=>setMode(+b.dataset.m)));
 function toggleAuto(){
   autoCycle = !autoCycle; lastAuto = performance.now();

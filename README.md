@@ -47,6 +47,11 @@ python3 -m http.server 8080
 # → http://localhost:8080
 ```
 
+## 手機操作
+
+- 視覺模式選單在窄螢幕（≤760px）變成**左側抽屜**：點左緣的 `▶` 拉出、`◀` 收回；也可從螢幕左緣向右滑開啟、向左滑關閉。選定模式後抽屜自動收回
+- 右上角顯示目前版本；GitHub 部署新版後（最多 10 分鐘內，或切回分頁時）會出現琥珀色 **⟳ UPDATE** 鈕，點一下即載入新版
+
 ## 技術備忘
 
 - WebGL2 / GLSL ES 3.0，單 pass、單三角形全螢幕 quad，六個場景都是程序化 noise/FBM/metaball，無任何貼圖資產
@@ -57,6 +62,10 @@ python3 -m http.server 8080
 - 檔案播放雙引擎：`<audio>` 串流優先（大檔不吃記憶體），元素拒播時自動以 `decodeAudioData` 全檔解碼改走 `AudioBufferSourceNode`（HUD 會標示 `· PCM`），兩者都解不開才報錯
 - 麥克風 / 系統音訊不回送喇叭（無 feedback），檔案與 demo 正常出聲
 - iOS Safari 相容：等待使用者手勢後才 `AudioContext.resume()`
+
+## 發佈備忘
+
+每次部署新版時，需同步 bump `index.html` 內的 `APP_VERSION` 常數與 `version.json` 的 `version` 欄位（兩者一致），線上頁面才會偵測到更新並亮起 UPDATE 鈕。
 
 ## License
 
