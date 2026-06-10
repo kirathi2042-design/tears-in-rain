@@ -23,9 +23,10 @@ Blade Runner 風格的音樂視覺化器。**單一 HTML 檔案**，零相依套
 ## 音源（任選其一）
 
 - **FILE 音檔** — 載入本機音檔，也可直接拖放到視窗。**雙引擎解碼**：先走 `<audio>` 串流（省記憶體），失敗自動 fallback 到 `decodeAudioData` 全檔解碼。實際支援格式依瀏覽器：MP3 / AAC·M4A / WAV / FLAC 全平台沒問題；OGG / Opus / WebM 在 Chrome、Firefox、新版 Safari 可用；AIFF / CAF / ALAC 在 Safari 可用。WMA / APE / WavPack 這類瀏覽器完全沒有解碼器的格式會明確提示無法播放
-- **MIC 麥克風** — 用任何裝置外放音樂（iOS 音樂 app、Spotify、黑膠、現場樂器），麥克風收音即時驅動視覺。**iPhone / iPad 上聽串流就用這個模式**（串流 DRM 音訊無法直接解碼，這是通用解法）
-- **SYSTEM 系統音訊** — 桌面 Chrome / Edge 透過分頁擷取（記得勾「分享分頁音訊」），可直接吃 Spotify Web Player / YouTube 的聲音，零延遲零雜訊
+- **YOUTUBE 連結播放** — 貼上 YouTube 連結（支援 `watch` / `youtu.be` / `shorts`），影片嵌入本頁播放，按下 LOAD 後瀏覽器會請求分享音訊——選「**此分頁 / This Tab**」一鍵授權，視覺即時跟著影片的聲音跳動。原理：跨網域 iframe 的音訊無法直接進 Web Audio 分析器（瀏覽器安全模型），所以把影片嵌進自己的分頁再自我擷取，是靜態網頁唯一的正規解法。**桌面 Chrome / Edge 限定**（iOS / Safari 不支援分頁擷取）
 - **DEMO 訊號** — 內建 96 BPM synthwave 迴圈（kick + acid bass + pad），一鍵就有東西看
+
+iOS 上請使用 FILE 或 DEMO 模式。
 
 檔案模式有完整播放器：播放／暫停、**0.5×–2× 倍速**、可點擊跳轉的進度條。
 

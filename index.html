@@ -97,6 +97,25 @@ h1 .slash{color:var(--magenta);text-shadow:0 0 10px var(--magenta)}
   padding:12px 14px;display:flex;flex-direction:column;gap:9px;max-width:min(430px,calc(100vw - 32px))}
 #dock .label{font-size:9px;letter-spacing:.4em;color:var(--dim)}
 #srcRow{display:flex;gap:8px;flex-wrap:wrap}
+/* ── YouTube uplink panel ── */
+#ytPanel{position:fixed;right:calc(16px + env(safe-area-inset-right));bottom:calc(190px + env(safe-area-inset-bottom));
+  width:min(380px, calc(100vw - 32px));z-index:50;display:none;flex-direction:column;gap:9px;padding:13px 14px}
+#ytPanel.show{display:flex}
+#ytHead{display:flex;justify-content:space-between;align-items:center;font-size:10px;letter-spacing:.35em;color:var(--dim)}
+#ytClose{background:none;border:1px solid rgba(255,43,214,.4);color:var(--magenta);width:22px;height:20px;
+  cursor:pointer;font-size:10px;font-family:var(--mono)}
+#ytRow{display:flex;gap:8px}
+#ytUrl{flex:1;background:rgba(0,229,255,.05);border:1px solid var(--line);color:var(--cyan);
+  font-family:var(--mono);font-size:12px;padding:8px 10px;letter-spacing:.05em;min-width:0}
+#ytUrl::placeholder{color:var(--dim)}
+#ytUrl:focus{outline:none;box-shadow:0 0 10px rgba(0,229,255,.3)}
+#ytGo{font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:var(--amber);background:rgba(255,176,0,.07);
+  border:1px solid rgba(255,176,0,.5);padding:8px 12px;cursor:pointer;white-space:nowrap}
+#ytGo:hover{box-shadow:0 0 12px rgba(255,176,0,.3)}
+#ytNote{font-size:10px;color:var(--dim);font-family:var(--tc);letter-spacing:.06em;line-height:1.5}
+#ytNote b{color:var(--amber);font-weight:500}
+#ytBox:not(:empty){border:1px solid var(--line)}
+#ytBox iframe{display:block;width:100%;aspect-ratio:16/9;border:0}
 .src{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;color:var(--txt);background:rgba(0,229,255,.05);
   border:1px solid rgba(0,229,255,.3);padding:8px 12px;cursor:pointer;transition:all .18s;
   clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,8px 100%,0 calc(100% - 8px))}
@@ -214,8 +233,7 @@ h1 .slash{color:var(--magenta);text-shadow:0 0 10px var(--magenta)}
     <div class="label">AUDIO SOURCE 音源</div>
     <div id="srcRow">
       <button class="src" id="bFile">▮ FILE 音檔</button>
-      <button class="src" id="bMic">▮ MIC 麥克風</button>
-      <button class="src" id="bSys">▮ SYSTEM 系統音訊</button>
+      <button class="src" id="bYT">▮ YOUTUBE</button>
       <button class="src" id="bDemo">▮ DEMO 訊號</button>
     </div>
     <div id="track">
@@ -228,7 +246,7 @@ h1 .slash{color:var(--magenta);text-shadow:0 0 10px var(--magenta)}
       <div id="seek"><div id="seekFill"></div></div>
       <span id="tDur">--:--</span>
     </div>
-    <div id="hint">音檔：MP3 / M4A / WAV / FLAC / OGG / Opus / AIFF…（雙引擎解碼）　·　iOS：用「麥克風」收 音樂app / Spotify 外放　·　桌面：「系統音訊」可擷取分頁聲音</div>
+    <div id="hint">音檔：MP3 / M4A / WAV / FLAC / OGG / Opus / AIFF…（雙引擎解碼）　·　YouTube：貼連結 → 載入 → 分享「此分頁」音訊（桌面 Chrome / Edge）</div>
   </div>
 
   <div id="meter" class="panel">
@@ -249,6 +267,16 @@ h1 .slash{color:var(--magenta);text-shadow:0 0 10px var(--magenta)}
 </div>
 
 <div id="toast"></div>
+
+<div id="ytPanel" class="panel">
+  <div id="ytHead"><span>YOUTUBE UPLINK · 連結播放</span><button id="ytClose">✕</button></div>
+  <div id="ytRow">
+    <input id="ytUrl" type="text" placeholder="貼上 YouTube 連結…" spellcheck="false" autocomplete="off">
+    <button id="ytGo">LOAD ▸</button>
+  </div>
+  <div id="ytNote">載入後瀏覽器會請求分享音訊 — 選「<b>此分頁 / This Tab</b>」即可讓視覺聽見影片</div>
+  <div id="ytBox"></div>
+</div>
 <div id="err">WEBGL2 UNAVAILABLE — 此瀏覽器不支援 WebGL2，無法啟動視覺核心。</div>
 <input type="file" id="fileIn" accept="audio/*,.mp3,.m4a,.m4b,.aac,.mp4,.wav,.wave,.flac,.ogg,.oga,.opus,.webm,.aif,.aiff,.aifc,.caf,.wma,.ape,.wv,.mka,.amr" style="display:none">
 <audio id="player" crossorigin="anonymous" style="display:none"></audio>
@@ -897,6 +925,8 @@ function detachSource(){
   DEMO.stop();
   player.pause();
   BUF.clear();
+  const yb = document.getElementById('ytBox');
+  if(yb) yb.innerHTML = '';          /* kill the embedded player — no double audio */
   fileMode = null;
   srcType = null;
 }
@@ -1250,49 +1280,66 @@ document.getElementById('seek').addEventListener('pointerdown', e=>{
 });
 function fmtT(s){ if(!isFinite(s)||s<0) return '--:--'; s|=0; return (s/60|0)+':'+String(s%60).padStart(2,'0'); }
 
-async function useMic(){
-  ensureCtx(); actx.resume();
-  try{
-    const st = await navigator.mediaDevices.getUserMedia({audio:{
-      echoCancellation:false, noiseSuppression:false, autoGainControl:false}});
-    detachSource();
-    curStream = st;
-    curSrcNode = actx.createMediaStreamSource(st);
-    curSrcNode.connect(analyser);
-    monitor.gain.value = 0;  /* no feedback */
-    srcType = 'mic';
-    setSrcUI('bMic','MIC','MICROPHONE — 外放 音樂app / Spotify 即可收音');
-    setTransport(false);
-  }catch(err){ toast('麥克風存取被拒絕 — 請在瀏覽器設定允許收音'); }
+/* ── YouTube uplink: embed the video in THIS tab, then capture this tab's audio ── */
+function parseYT(url){
+  const m = url.match(/(?:youtube\.com\/(?:watch\?[^#]*v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})/);
+  return m ? m[1] : null;
 }
-
-async function useSystem(){
-  ensureCtx(); actx.resume();
-  if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
-    toast('此裝置不支援系統音訊擷取（iOS 請改用麥克風模式）'); return;
+function closeYT(){
+  document.getElementById('ytPanel').classList.remove('show');
+  if(srcType==='yt'){
+    detachSource();
+    setSrcUI(null,'STANDBY','— 無訊號 NO CARRIER —');
+    setTransport(false);
   }
+}
+async function loadYT(){
+  const id = parseYT(document.getElementById('ytUrl').value.trim());
+  if(!id){ toast('看不懂這個連結 — 支援 youtube.com/watch、youtu.be、shorts'); return; }
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
+    toast('此瀏覽器不支援分頁音訊擷取 — YouTube 模式桌面 Chrome / Edge 限定'); return;
+  }
+  ensureCtx(); actx.resume(); detachSource();
+  /* embed the player in our own tab — its sound becomes capturable */
+  document.getElementById('ytBox').innerHTML =
+    '<iframe src="https://www.youtube-nocookie.com/embed/'+id+
+    '?autoplay=1&playsinline=1" allow="autoplay; encrypted-media" allowfullscreen></iframe>';
   try{
-    const st = await navigator.mediaDevices.getDisplayMedia({video:true, audio:true});
+    const st = await navigator.mediaDevices.getDisplayMedia({
+      video:true, audio:true, preferCurrentTab:true, selfBrowserSurface:'include'});
     if(st.getAudioTracks().length===0){
       st.getTracks().forEach(t=>t.stop());
-      toast('沒抓到聲音 — 分享時請勾選「分享分頁音訊 / Share tab audio」'); return;
+      toast('沒抓到聲音 — 請選「此分頁」並保持「分享分頁音訊」開啟'); return;
     }
-    detachSource();
     st.getVideoTracks().forEach(t=>t.stop());
     curStream = st;
     curSrcNode = actx.createMediaStreamSource(st);
     curSrcNode.connect(analyser);
-    monitor.gain.value = 0;
-    srcType = 'sys';
-    setSrcUI('bSys','SYS','SYSTEM AUDIO — Spotify / YouTube 分頁擷取中');
+    monitor.gain.value = 0;          /* 影片本身出聲，不重複播放 */
+    srcType = 'yt';
+    setSrcUI('bYT','YT','YOUTUBE — '+id.toUpperCase());
     setTransport(false);
-  }catch(err){ toast('系統音訊擷取已取消'); }
+    fetch('https://noembed.com/embed?url=https://www.youtube.com/watch?v='+id)
+      .then(r=>r.json())
+      .then(j=>{ if(j.title && srcType==='yt')
+        document.getElementById('trackName').textContent = 'YT — '+j.title.toUpperCase(); })
+      .catch(()=>{});
+  }catch(err){ toast('分頁音訊擷取已取消 — 影片仍在播放，可按 LOAD 重試'); }
 }
+document.getElementById('bYT').addEventListener('click', ()=>{
+  ensureCtx(); actx.resume();
+  document.getElementById('ytPanel').classList.add('show');
+  document.getElementById('ytUrl').focus();
+});
+document.getElementById('ytClose').addEventListener('click', closeYT);
+document.getElementById('ytGo').addEventListener('click', loadYT);
+document.getElementById('ytUrl').addEventListener('keydown', e=>{
+  if(e.key==='Enter') loadYT();
+  e.stopPropagation();             /* typing must not trigger mode hotkeys */
+});
 
 document.getElementById('bDemo').addEventListener('click', useDemo);
 document.getElementById('bFile').addEventListener('click', useFile);
-document.getElementById('bMic').addEventListener('click', useMic);
-document.getElementById('bSys').addEventListener('click', useSystem);
 
 /* drag & drop any audio file */
 addEventListener('dragover', e=>e.preventDefault());
@@ -1337,7 +1384,7 @@ addEventListener('touchend', e=>{
 }, {passive:true});
 
 /* ── self-update: manual version check; no background polling during development ── */
-const APP_VERSION = '2.9.0';   /* ⚠ 發佈時同步 bump 此值與 version.json */
+const APP_VERSION = '2.10.0';   /* ⚠ 發佈時同步 bump 此值與 version.json */
 document.getElementById('verLabel').textContent = 'v'+APP_VERSION;
 let latestV = null, checkingUpdate = false;
 const updBtn = document.getElementById('updBtn');
@@ -1391,6 +1438,7 @@ document.getElementById('autoBtn').addEventListener('click', toggleAuto);
 setMode(0);
 
 addEventListener('keydown', e=>{
+  if(e.target && e.target.tagName==='INPUT') return;   /* typing a URL must not fire hotkeys */
   if(e.key>='1' && e.key<='9') setMode(+e.key-1);
   else if(e.key==='h'||e.key==='H') document.getElementById('ui').classList.toggle('hidden');
   else if(e.key==='a'||e.key==='A') toggleAuto();
