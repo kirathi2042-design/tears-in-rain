@@ -99,6 +99,13 @@ h1 .slash{color:var(--magenta);text-shadow:0 0 10px var(--magenta)}
 #trackName{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px;letter-spacing:.08em}
 #playBtn{background:none;border:1px solid var(--line);color:var(--cyan);width:26px;height:22px;cursor:pointer;font-size:10px;font-family:var(--mono)}
 #playBtn:disabled{opacity:.25;cursor:default}
+#rateBtn{background:none;border:1px solid rgba(255,176,0,.4);color:var(--amber);min-width:44px;height:22px;cursor:pointer;font-size:10px;font-family:var(--mono);letter-spacing:.1em}
+#rateBtn:hover:not(:disabled){box-shadow:0 0 10px rgba(255,176,0,.3)}
+#rateBtn:disabled{opacity:.25;cursor:default}
+#transport{display:flex;align-items:center;gap:9px;font-size:10px;color:var(--dim);letter-spacing:.08em;transition:opacity .3s}
+#transport.off{opacity:.22;pointer-events:none}
+#seek{flex:1;height:10px;border:1px solid rgba(0,229,255,.25);cursor:pointer;position:relative;background:rgba(0,229,255,.04)}
+#seekFill{position:absolute;top:1px;bottom:1px;left:1px;width:0%;background:linear-gradient(90deg,var(--cyan),var(--magenta));box-shadow:0 0 8px rgba(0,229,255,.45)}
 #hint{font-size:10px;color:var(--dim);font-family:var(--tc);letter-spacing:.1em}
 
 /* ── spectrum (bottom-right) ────────────────────── */
@@ -183,7 +190,13 @@ h1 .slash{color:var(--magenta);text-shadow:0 0 10px var(--magenta)}
     </div>
     <div id="track">
       <button id="playBtn" disabled>▶</button>
+      <button id="rateBtn" disabled>1×</button>
       <span id="trackName">— 無訊號 NO CARRIER —</span>
+    </div>
+    <div id="transport" class="off">
+      <span id="tCur">--:--</span>
+      <div id="seek"><div id="seekFill"></div></div>
+      <span id="tDur">--:--</span>
     </div>
     <div id="hint">音檔：MP3 / M4A / WAV / FLAC / OGG / Opus / AIFF…（雙引擎解碼）　·　iOS：用「麥克風」收 音樂app / Spotify 外放　·　桌面：「系統音訊」可擷取分頁聲音</div>
   </div>
@@ -202,7 +215,7 @@ h1 .slash{color:var(--magenta);text-shadow:0 0 10px var(--magenta)}
   <div class="kana2">雨中之淚</div>
   <div class="tag">VK-OFFWORLD AUDIO REACTIVE SYSTEM — EST. 2049</div>
   <div class="go">INITIATE ▸ 點擊啟動</div>
-  <div class="fine">啟動後預設播放內建 DEMO 訊號 · 可隨時切換 音檔 / 麥克風 / 系統音訊</div>
+  <div class="fine">啟動後選擇音源：音檔 / 麥克風 / 系統音訊 / DEMO 訊號</div>
 </div>
 
 <div id="toast"></div>
@@ -226,6 +239,7 @@ out vec4 fragColor;
 uniform vec2  uRes;
 uniform float uTime, uScroll;
 uniform float uBass, uMid, uTreble, uLevel, uBeat;
+uniform float uHue, uWind;
 uniform int   uMode;
 uniform sampler2D uFreq;
 
@@ -244,10 +258,16 @@ float fbm(vec2 p){
   return v;
 }
 float aspect(){ return uRes.x/uRes.y; }
+vec3 hueRot(vec3 c, float a){
+  const vec3 k = vec3(.57735);
+  float ca = cos(a), sa = sin(a);
+  return max(c*ca + cross(k,c)*sa + k*dot(k,c)*(1.-ca), 0.);
+}
 
 /* ═══ 01 SMOKE 煙霧 — domain-warped neon smoke ═══ */
 vec3 sceneSmoke(vec2 uv){
   vec2 p = (uv-.5)*vec2(aspect(),1.)*2.4;
+  p.x -= uWind*(uv.y+.4)*1.1;          /* beat = gust of side wind */
   float t = uTime*.22;
   vec2 q = vec2(fbm(p+vec2(0.,-t)), fbm(p+vec2(5.2,1.3)-t*.6));
   vec2 r = vec2(fbm(p+3.2*q+vec2(1.7,9.2)+t*.32),
@@ -260,7 +280,7 @@ vec3 sceneSmoke(vec2 uv){
   col = mix(col, vec3(.35,.0,.5)*.6, smoothstep(.6,1.,q.x)*.5);
   col += cy * pow(f,3.5) * uBeat * .9;
   col += mg * pow(max(0.,r.x-.55)*2.2,2.) * uMid * .35;
-  return col;
+  return hueRot(col, uHue);            /* palette drifts with the music */
 }
 
 /* ═══ 02 FIRE 火焰 — bass-fed flame + embers ═══ */
@@ -268,8 +288,9 @@ vec3 sceneFire(vec2 uv){
   vec2 p = vec2((uv.x-.5)*aspect()*1.7, uv.y);
   float t = uTime*1.6;
   float edge = 1.-smoothstep(.4,1.3,abs(p.x));
-  float n = fbm(vec2(p.x*3.0, p.y*4.2 - t));
-  n += .55*fbm(vec2(p.x*7.5+9., p.y*9.5 - t*1.9));
+  float wx = uWind*uv.y*3.4;           /* beat-wind shears the flame */
+  float n = fbm(vec2(p.x*3.0 - wx, p.y*4.2 - t));
+  n += .55*fbm(vec2(p.x*7.5+9. - wx*1.6, p.y*9.5 - t*1.9));
   n /= 1.55;
   float h = uv.y*1.3/(.36 + uBass*1.25) + (1.-edge)*.8;
   float flame = clamp(n*1.7 - h + .12, 0., 1.);
@@ -283,7 +304,7 @@ vec3 sceneFire(vec2 uv){
   for(int i=0;i<3;i++){
     float fi = float(i);
     float sc = 14.+fi*9.;
-    vec2 gp = vec2(uv.x*sc, uv.y*sc - uTime*(2.6+fi*1.7+uBass*7.));
+    vec2 gp = vec2(uv.x*sc - uWind*uv.y*sc*.5, uv.y*sc - uTime*(2.6+fi*1.7+uBass*7.));
     vec2 id = floor(gp); vec2 fr = fract(gp)-.5;
     vec2 off = (h22(id+fi*31.)-.5)*.7;
     float life = h11(id.x*7.+id.y*3.+fi);
@@ -292,7 +313,7 @@ vec3 sceneFire(vec2 uv){
   }
   /* heat haze glow at base */
   col += vec3(.6,.12,.02)*pow(1.-uv.y,3.)*edge*(.4+uBass*.8);
-  return col;
+  return hueRot(col, uHue*.55);        /* slow drift toward plasma hues */
 }
 
 /* ═══ 03 RAIN 雨滴玻璃 — droplets over neon bokeh ═══ */
@@ -307,6 +328,7 @@ vec3 bokehBG(vec2 uv){
     float b = smoothstep(sz, sz*.25, d);
     vec3 cc = mix(vec3(.0,.85,1.), vec3(1.,.2,.9), h11(fi+2.3));
     if(h11(fi*9.1+4.)>.78) cc = vec3(1.,.6,.15);
+    cc = hueRot(cc, uHue);
     col += cc * b * (.1+.45*uLevel) * (.55+.45*sin(uTime*1.8+fi*2.2));
   }
   /* distant skyline strip */
@@ -321,7 +343,7 @@ vec3 dropLayer(vec2 uv, float zoom, float speed, float seed){
   vec2 rnd = h22(id);
   float on = step(.45, rnd.x);
   vec2 dpos = (rnd-.5)*.62;
-  dpos.x += sin(uTime*2.5+rnd.y*20.)*.05*uTreble;
+  dpos.x += sin(uTime*2.5+rnd.y*20.)*.05*uTreble + uWind*.14;
   float sz = (.07+.16*h11(id.x*13.1+id.y*7.7)) * on;
   float d = length(f-dpos);
   float m = smoothstep(sz, sz*.45, d);
@@ -337,7 +359,7 @@ vec3 sceneRain(vec2 uv){
   col = mix(col*.85, col*1.3, mask);             /* drops gather light */
   col += vec3(.6,.9,1.)*pow(mask,6.)*.16;         /* specular kiss */
   /* falling streaks in front */
-  float st = smoothstep(.93,1., vnoise(vec2(uv.x*130., uv.y*2.+uTime*(14.+uLevel*22.))));
+  float st = smoothstep(.93,1., vnoise(vec2(uv.x*130. + uv.y*uWind*48., uv.y*2.+uTime*(14.+uLevel*22.))));
   col += vec3(.55,.8,1.)*st*.14*(.3+uLevel);
   /* beat: lightning wash */
   col += vec3(.5,.7,.9)*uBeat*.12;
@@ -351,7 +373,7 @@ vec3 sceneLava(vec2 uv){
   for(int i=0;i<7;i++){
     float fi = float(i);
     float sp = .13 + .09*h11(fi*5.3+1.);
-    vec2 c = vec2(sin(uTime*sp+fi*2.39)*.5*(.55+.45*sin(fi*1.3)),
+    vec2 c = vec2(sin(uTime*sp+fi*2.39)*.5*(.55+.45*sin(fi*1.3)) + uWind*.2,
                   sin(uTime*sp*1.61+fi*1.71)*.72);
     float r = .1 + .06*sin(uTime*.6+fi*2.1) + uBass*.13;
     field += r*r / max(dot(p-c,p-c), 1e-4);
@@ -363,6 +385,7 @@ vec3 sceneLava(vec2 uv){
   vec3 col = vec3(.022,.008,.05);
   col += vec3(.1,.02,.16)*pow(max(0.,1.-length(p*vec2(.7,.45))),2.); /* lamp glow bed */
   vec3 wax = mix(vec3(1.,.1,.58), vec3(1.,.46,.08), .5+.5*sin(uTime*.25+p.y*2.2));
+  wax = hueRot(wax, uHue);
   col = mix(col, wax*(.42+.6*uLevel), m);
   col += vec3(1.,.35,.75)*rim*(.45+uBeat*.8);
   col += wax*min(field,6.)*.05;
@@ -393,10 +416,15 @@ vec3 sceneForest(vec2 uv){
   float sd = length((uv-sun)*vec2(aspect(),1.));
   vec3 col = mix(vec3(.035,.075,.085), vec3(.4,.68,.66), pow(max(0.,1.-sd),2.)*(.55+.55*uMid));
   col += vec3(1.,.75,.4)*pow(max(0.,1.-sd*1.6),5.)*.4;     /* amber core */
-  /* god rays */
+  /* god rays — double set, swaying */
   float ang = atan(uv.y-sun.y, (uv.x-sun.x)*aspect());
   float rays = pow(abs(sin(ang*7.5 + uTime*.12)), 5.) * pow(max(0.,1.-sd*.85),2.);
-  col += vec3(.65,.85,.8)*rays*(.12+.4*uMid);
+  rays += .65*pow(abs(sin(ang*17. - uTime*.07 + uWind*.4)), 9.) * pow(max(0.,1.-sd*.9),2.);
+  col += vec3(.65,.85,.8)*rays*(.2+.6*uMid);
+  /* bloom core + beat flare */
+  col += vec3(1.,.85,.55)*pow(max(0.,1.-sd*1.15),6.)*(.5+1.1*uBeat+.4*uMid);
+  /* anamorphic horizontal glare */
+  col += vec3(.7,.95,1.)*exp(-abs(uv.y-sun.y)*24.)*exp(-abs(uv.x-sun.x)*2.4)*(.2+.5*uMid+.4*uBeat);
   /* layers far → near, fog breathes with the music */
   for(int i=0;i<6;i++){
     float fi = float(i);
@@ -408,10 +436,10 @@ vec3 sceneForest(vec2 uv){
     col = mix(col, layerCol, L);
   }
   /* ground mist band */
-  float band = smoothstep(.32,.0,uv.y) * (fbm(vec2(uv.x*3.+uTime*.05, uv.y*6.))*.8+.2);
+  float band = smoothstep(.32,.0,uv.y) * (fbm(vec2(uv.x*3.+uTime*.05+uWind*.8, uv.y*6.))*.8+.2);
   col = mix(col, fogC*(.5+.4*uLevel), band*.5);
   col += vec3(.6,.9,.85)*uBeat*.07;
-  return col;
+  return hueRot(col, uHue*.3);         /* gentle seasonal colour drift */
 }
 
 /* ═══ 06 ROAD 迷霧道路 — fog highway, spectrum skyline ═══ */
@@ -430,32 +458,64 @@ vec3 sceneRoad(vec2 uv){
     g += vec3(1.,.8,.25)*dash*1.6;                          /* center dashes */
     float side = smoothstep(.05,.0,abs(abs(x)-1.35));
     g += vec3(.0,.9,1.)*side*1.3;                           /* neon edges */
+    float side2 = smoothstep(.07,.0,abs(abs(x)-1.66));
+    g += hueRot(vec3(1.,.18,.8), uHue)*side2*.95;           /* outer magenta rail */
+    /* wet asphalt mirrors the skyline neon */
+    float gw = 56.;
+    float gid = floor(uv.x*gw);
+    float gspec = texture(uFreq, vec2(abs(((gid+.5)/gw)*2.-1.), .5)).r;
+    float smear = .5+.5*vnoise(vec2(uv.x*170., p.y*34.));
+    g += hueRot(vec3(1.,.2,.75), h11(gid)*2.4 + uHue)*gspec*gspec*exp(-z*7.)*smear*1.1;
     float fog = 1.-exp(-dist*.16*(1.+uBass*.45));
-    vec3 fogc = mix(vec3(.05,.09,.13), vec3(.45,.16,.42), .3+.35*uLevel);
+    vec3 fogc = mix(vec3(.05,.09,.13), hueRot(vec3(.45,.16,.42), uHue*.6), .3+.35*uLevel);
     col = mix(g, fogc, clamp(fog,0.,1.));
   } else {
     float sy = p.y - horizon;
     col = mix(vec3(.06,.035,.11), vec3(.008,.008,.028), smoothstep(0.,1.,sy*1.3));
     /* spectrum skyline */
     float colW = 56.;
-    float xq = (floor(uv.x*colW)+.5)/colW;
+    float cid = floor(uv.x*colW);
+    float xq = (cid+.5)/colW;
     float spec = texture(uFreq, vec2(abs(xq*2.-1.), .5)).r;
-    float bh = spec*spec*.3 + h11(floor(uv.x*colW))*.02;
+    float bh = spec*spec*.3 + h11(cid)*.02;
     if(sy < bh){
       col = vec3(.008,.014,.022);
-      /* windows */
-      float win = step(.93, h21(floor(vec2(uv.x*colW*3., sy*90.))));
-      col += vec3(1.,.7,.25)*win*.5;
+      /* mixed neon windows: amber + cyan */
+      vec2 wid = floor(vec2(uv.x*colW*3., sy*90.));
+      float win = step(.9, h21(wid));
+      vec3 wc = h21(wid+7.3)>.5 ? vec3(.15,.9,1.) : vec3(1.,.6,.2);
+      col += wc*win*.55;
     }
-    col += vec3(1.,.2,.75)*smoothstep(.014,.0,abs(sy-bh))*spec*2.2;  /* neon roofline */
-    col += vec3(.85,.3,.6)*exp(-sy*8.)*(.22+.5*uLevel);              /* horizon haze */
-    col += vec3(.4,.1,.5)*exp(-sy*2.5)*.15;
-    /* drifting searchlight */
+    vec3 roof = hueRot(vec3(1.,.2,.75), h11(cid)*2.4 + uHue);        /* per-tower neon hue */
+    col += roof*smoothstep(.014,.0,abs(sy-bh))*spec*2.6;
+    /* mega ad-signs hovering in the smog */
+    for(int i=0;i<5;i++){
+      float fi = float(i);
+      vec2 sp = vec2(h11(fi*3.31+1.)*2.4-1.2, .1+h11(fi*7.13+2.)*.42);
+      float fl = .55+.45*sin(uTime*(2.2+fi*1.7)+fi*9.);              /* sign flicker */
+      vec3 nc = hueRot(mix(vec3(0.,.9,1.), vec3(1.,.15,.8), h11(fi+.51)), uHue);
+      col += nc*exp(-length(vec2((p.x-sp.x)*1.6,(sy-sp.y)*5.5))*16.)*fl*(.4+.7*uLevel);
+    }
+    /* spinner traffic light-trails */
+    for(int i=0;i<3;i++){
+      float fi = float(i);
+      float dir = fi<1.5 ? 1. : -1.;
+      float sx = (fract(uTime*(.05+.025*fi)+fi*.37)*3.4-1.7)*dir;
+      float sy0 = .26+.2*fi+.04*sin(uTime*.8+fi*4.);
+      float dx = (p.x-sx)*dir;
+      float streak = (exp(dx*5.)*step(dx,0.) + exp(-abs(dx)*30.))*exp(-abs(sy-sy0)*70.);
+      vec3 scol = fi<1.5 ? vec3(1.,.25,.45) : vec3(.3,.9,1.);
+      col += scol*streak*.5;
+    }
+    col += hueRot(vec3(.85,.3,.6), uHue*.6)*exp(-sy*8.)*(.25+.55*uLevel); /* horizon haze */
+    col += vec3(.4,.1,.5)*exp(-sy*2.5)*.18;
+    /* twin drifting searchlights */
     float beam = pow(abs(sin(atan(sy, p.x - sin(uTime*.1)*1.2)*2. + uTime*.2)), 60.);
-    col += vec3(.5,.7,.9)*beam*exp(-sy*2.)*.18;
+    beam += pow(abs(sin(atan(sy, p.x + sin(uTime*.13+2.)*1.5)*2. - uTime*.17)), 70.);
+    col += vec3(.5,.7,.9)*beam*exp(-sy*2.)*.2;
   }
   /* windshield rain flecks */
-  float fl = smoothstep(.96,1., vnoise(vec2(uv.x*90., uv.y*40.+uTime*(8.+uLevel*30.))));
+  float fl = smoothstep(.96,1., vnoise(vec2(uv.x*90.+uv.y*uWind*32., uv.y*40.+uTime*(8.+uLevel*30.))));
   col += vec3(.4,.6,.8)*fl*.1;
   col += vec3(.7,.4,.9)*uBeat*.08;
   return col;
@@ -502,7 +562,7 @@ gl.enableVertexAttribArray(aPos);
 gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
 
 const U = {};
-for(const n of ['uRes','uTime','uScroll','uBass','uMid','uTreble','uLevel','uBeat','uMode','uFreq'])
+for(const n of ['uRes','uTime','uScroll','uBass','uMid','uTreble','uLevel','uBeat','uHue','uWind','uMode','uFreq'])
   U[n] = gl.getUniformLocation(prog, n);
 
 /* frequency texture: 64 bins */
@@ -535,7 +595,8 @@ let curSrcNode=null, curStream=null, mesNode=null;
 const player = document.getElementById('player');
 
 const A = { bass:0, mid:0, treble:0, level:0, beat:0,
-            bassAvg:0.01, lastBeat:0 };
+            bassAvg:0.01, lastBeat:0,
+            hue:0, wind:0, windSign:1 };
 
 function ensureCtx(){
   if(actx) return;
@@ -586,8 +647,13 @@ function analyze(dt, now){
   A.bassAvg += (b - A.bassAvg)*Math.min(1, dt*1.4);
   if(b > A.bassAvg*1.32 && b > .06 && now-A.lastBeat > .22){
     A.beat = 1; A.lastBeat = now;
+    A.windSign *= -1;                         /* gusts alternate sides */
+    A.wind = A.windSign*(.5 + .9*b);
+    A.hue += .14;                             /* palette kick on the downbeat */
   }
   A.beat *= Math.pow(.012, dt);
+  A.wind *= Math.pow(.05, dt);                /* gust dies down */
+  A.hue += dt*(.05 + .2*A.treble);            /* constant slow colour drift */
   /* freq texture (log-ish bin spread) */
   for(let i=0;i<FREQ_W;i++){
     const f = Math.floor(Math.pow(i/FREQ_W, 1.6)*330)+1;
@@ -688,7 +754,7 @@ function useDemo(){
   monitor.gain.value = 1;
   DEMO.start();
   setSrcUI('bDemo','DEMO','DEMO SIGNAL — VK-SYNTH 96BPM');
-  document.getElementById('playBtn').disabled=true;
+  setTransport(false);
 }
 
 /* ── file playback: dual engine ──
@@ -698,19 +764,38 @@ const AUDIO_EXT = /\.(mp3|m4a|m4b|aac|mp4|wav|wave|flac|ogg|oga|opus|webm|aif|ai
 function isAudioFile(f){ return (f.type && f.type.startsWith('audio')) || AUDIO_EXT.test(f.name); }
 
 const BUF = {
-  buf:null, node:null, offset:0, startedAt:0, playing:false,
+  buf:null, node:null, offset:0, startedAt:0, playing:false, rate:1,
   play(){
     if(!this.buf) return;
     this.stopNode();
     const n = actx.createBufferSource();
-    n.buffer = this.buf; n.loop = true; n.connect(analyser);
+    n.buffer = this.buf; n.loop = true;
+    n.playbackRate.value = this.rate;
+    n.connect(analyser);
     n.start(0, this.offset % this.buf.duration);
-    this.node = n; this.startedAt = actx.currentTime - this.offset; this.playing = true;
+    this.node = n; this.startedAt = actx.currentTime; this.playing = true;
+  },
+  pos(){
+    if(!this.buf) return 0;
+    const p = this.playing ? this.offset + (actx.currentTime - this.startedAt)*this.rate : this.offset;
+    return p % this.buf.duration;
   },
   pause(){
     if(!this.playing) return;
-    this.offset = (actx.currentTime - this.startedAt) % this.buf.duration;
+    this.offset = this.pos();
     this.stopNode(); this.playing = false;
+  },
+  seek(t){
+    this.offset = Math.max(0, t);
+    if(this.playing) this.play();
+  },
+  setRate(r){
+    if(this.playing){
+      this.offset = this.pos();
+      this.startedAt = actx.currentTime;
+      if(this.node) this.node.playbackRate.value = r;
+    }
+    this.rate = r;
   },
   stopNode(){ if(this.node){ try{this.node.stop();}catch(e){} try{this.node.disconnect();}catch(e){} this.node=null; } },
   clear(){ this.stopNode(); this.buf=null; this.offset=0; this.playing=false; }
@@ -741,7 +826,7 @@ async function loadFile(f){
   if(await tryElement(curURL)){
     fileMode = 'element';
     setSrcUI('bFile','FILE', f.name.toUpperCase());
-    pb.disabled=false; pb.textContent='❚❚';
+    setTransport(true); applyRate(); pb.textContent='❚❚';
     return;
   }
   player.removeAttribute('src'); player.load();
@@ -750,10 +835,10 @@ async function loadFile(f){
     BUF.buf = buf; BUF.offset = 0; BUF.play();
     fileMode = 'buffer';
     setSrcUI('bFile','FILE', f.name.toUpperCase()+' · PCM');
-    pb.disabled=false; pb.textContent='❚❚';
+    setTransport(true); applyRate(); pb.textContent='❚❚';
   }catch(err){
     setSrcUI(null,'STANDBY','— 無訊號 NO CARRIER —');
-    pb.disabled=true; pb.textContent='▶';
+    setTransport(false); pb.textContent='▶';
     toast('此瀏覽器無法解碼「'+f.name+'」— 試試 MP3 / M4A / WAV / FLAC / OGG');
   }
 }
@@ -778,6 +863,36 @@ document.getElementById('playBtn').addEventListener('click', ()=>{
   }
 });
 
+/* ── transport: rate cycle + seek ── */
+const RATES = [.5,.75,1,1.25,1.5,2];
+let rateIdx = 2;
+function setTransport(on){
+  document.getElementById('playBtn').disabled = !on;
+  document.getElementById('rateBtn').disabled = !on;
+  document.getElementById('transport').classList.toggle('off', !on);
+  if(!on){
+    document.getElementById('tCur').textContent='--:--';
+    document.getElementById('tDur').textContent='--:--';
+    document.getElementById('seekFill').style.width='0%';
+  }
+}
+function applyRate(){
+  const r = RATES[rateIdx];
+  document.getElementById('rateBtn').textContent = r+'×';
+  player.playbackRate = r;
+  BUF.setRate(r);
+}
+document.getElementById('rateBtn').addEventListener('click', ()=>{
+  rateIdx = (rateIdx+1)%RATES.length; applyRate();
+});
+document.getElementById('seek').addEventListener('pointerdown', e=>{
+  const r = e.currentTarget.getBoundingClientRect();
+  const frac = Math.min(1, Math.max(0, (e.clientX-r.left)/r.width));
+  if(fileMode==='element' && isFinite(player.duration)) player.currentTime = frac*player.duration;
+  else if(fileMode==='buffer' && BUF.buf) BUF.seek(frac*BUF.buf.duration);
+});
+function fmtT(s){ if(!isFinite(s)||s<0) return '--:--'; s|=0; return (s/60|0)+':'+String(s%60).padStart(2,'0'); }
+
 async function useMic(){
   ensureCtx(); actx.resume();
   try{
@@ -789,7 +904,7 @@ async function useMic(){
     curSrcNode.connect(analyser);
     monitor.gain.value = 0;  /* no feedback */
     setSrcUI('bMic','MIC','MICROPHONE — 外放 音樂app / Spotify 即可收音');
-    document.getElementById('playBtn').disabled=true;
+    setTransport(false);
   }catch(err){ toast('麥克風存取被拒絕 — 請在瀏覽器設定允許收音'); }
 }
 
@@ -811,7 +926,7 @@ async function useSystem(){
     curSrcNode.connect(analyser);
     monitor.gain.value = 0;
     setSrcUI('bSys','SYS','SYSTEM AUDIO — Spotify / YouTube 分頁擷取中');
-    document.getElementById('playBtn').disabled=true;
+    setTransport(false);
   }catch(err){ toast('系統音訊擷取已取消'); }
 }
 
@@ -867,7 +982,7 @@ addEventListener('mousemove', pokeUI); addEventListener('touchstart', pokeUI, {p
 /* boot */
 document.getElementById('boot').addEventListener('click', ()=>{
   document.getElementById('boot').classList.add('gone');
-  useDemo();
+  ensureCtx(); actx.resume();
 });
 
 /* ═══════════════ render loop ═══════════════ */
@@ -908,11 +1023,21 @@ function frame(now){
   gl.uniform1f(U.uTreble, Math.min(A.treble,1.2));
   gl.uniform1f(U.uLevel, Math.min(A.level,1.2));
   gl.uniform1f(U.uBeat, A.beat);
+  gl.uniform1f(U.uHue, A.hue % 6.2832);
+  gl.uniform1f(U.uWind, A.wind);
   gl.uniform1i(U.uMode, mode);
   gl.bindTexture(gl.TEXTURE_2D, freqTex);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
   drawSpec();
+  if(fileMode && (fpsN%6)===0){
+    let cur=0, dur=NaN;
+    if(fileMode==='element'){ cur=player.currentTime; dur=player.duration; }
+    else if(BUF.buf){ cur=BUF.pos(); dur=BUF.buf.duration; }
+    document.getElementById('tCur').textContent = fmtT(cur);
+    document.getElementById('tDur').textContent = fmtT(dur);
+    document.getElementById('seekFill').style.width = (isFinite(dur)&&dur>0 ? cur/dur*100 : 0)+'%';
+  }
   document.getElementById('vB').textContent = (A.bass*99|0);
   document.getElementById('vM').textContent = (A.mid*99|0);
   document.getElementById('vT').textContent = (A.treble*99|0);
