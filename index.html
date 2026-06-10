@@ -679,6 +679,7 @@ function detachSource(){
   player.pause();
   BUF.clear();
   fileMode = null;
+  srcType = null;
 }
 
 function setSrcUI(id, tag, name){
@@ -766,6 +767,18 @@ const DEMO = {
       b.gain.setTargetAtTime(0, actx.currentTime, .05);
       setTimeout(()=>{try{b.disconnect();}catch(e){}}, 300); }
   },
+  pause(){                                   /* keeps the bus & pattern position */
+    if(this.timer){ clearInterval(this.timer); this.timer=null; }
+    if(this.bus) this.bus.gain.setTargetAtTime(0, actx.currentTime, .04);
+    this.on=false;
+  },
+  resume(){
+    if(!this.bus){ this.start(); return; }
+    this.bus.gain.setTargetAtTime(.85, actx.currentTime, .04);
+    this.next = actx.currentTime + .1;
+    this.timer = setInterval(()=>this.tick(), 25);
+    this.on=true;
+  },
   tick(){
     const SPB = 60/96/4; /* 96 bpm, 16ths */
     while(this.next < actx.currentTime + .12){
@@ -832,8 +845,11 @@ function useDemo(){
   ensureCtx(); actx.resume(); detachSource();
   monitor.gain.value = 1;
   DEMO.start();
+  srcType = 'demo';
   setSrcUI('bDemo','DEMO','DEMO SIGNAL — VK-SYNTH 96BPM');
   setTransport(false);
+  const pb = document.getElementById('playBtn');
+  pb.disabled = false; pb.textContent = '❚❚';   /* demo can pause too */
 }
 
 /* ── file playback: dual engine ──
@@ -880,6 +896,7 @@ const BUF = {
   clear(){ this.stopNode(); this.buf=null; this.offset=0; this.playing=false; }
 };
 let fileMode = null;   /* 'element' | 'buffer' | null */
+let srcType = null;    /* 'file' | 'mic' | 'sys' | 'demo' | null */
 let curURL = null;
 
 function tryElement(url){
@@ -903,7 +920,7 @@ async function loadFile(f){
   setSrcUI('bFile','FILE','DECODING… '+f.name.toUpperCase());
   curURL = URL.createObjectURL(f);
   if(await tryElement(curURL)){
-    fileMode = 'element';
+    fileMode = 'element'; srcType = 'file';
     setSrcUI('bFile','FILE', f.name.toUpperCase());
     setTransport(true); applyRate(); pb.textContent='❚❚';
     return;
@@ -912,7 +929,7 @@ async function loadFile(f){
   try{
     const buf = await actx.decodeAudioData(await f.arrayBuffer());
     BUF.buf = buf; BUF.offset = 0; BUF.play();
-    fileMode = 'buffer';
+    fileMode = 'buffer'; srcType = 'file';
     setSrcUI('bFile','FILE', f.name.toUpperCase()+' · PCM');
     setTransport(true); applyRate(); pb.textContent='❚❚';
   }catch(err){
@@ -933,7 +950,10 @@ document.getElementById('fileIn').addEventListener('change', e=>{
 });
 document.getElementById('playBtn').addEventListener('click', ()=>{
   const pb = document.getElementById('playBtn');
-  if(fileMode==='buffer'){
+  if(srcType==='demo'){
+    if(DEMO.on){ DEMO.pause(); pb.textContent='▶'; }
+    else{ DEMO.resume(); pb.textContent='❚❚'; }
+  }else if(fileMode==='buffer'){
     if(BUF.playing){ BUF.pause(); pb.textContent='▶'; }
     else{ BUF.play(); pb.textContent='❚❚'; }
   }else{
@@ -982,6 +1002,7 @@ async function useMic(){
     curSrcNode = actx.createMediaStreamSource(st);
     curSrcNode.connect(analyser);
     monitor.gain.value = 0;  /* no feedback */
+    srcType = 'mic';
     setSrcUI('bMic','MIC','MICROPHONE — 外放 音樂app / Spotify 即可收音');
     setTransport(false);
   }catch(err){ toast('麥克風存取被拒絕 — 請在瀏覽器設定允許收音'); }
@@ -1004,6 +1025,7 @@ async function useSystem(){
     curSrcNode = actx.createMediaStreamSource(st);
     curSrcNode.connect(analyser);
     monitor.gain.value = 0;
+    srcType = 'sys';
     setSrcUI('bSys','SYS','SYSTEM AUDIO — Spotify / YouTube 分頁擷取中');
     setTransport(false);
   }catch(err){ toast('系統音訊擷取已取消'); }
@@ -1055,7 +1077,7 @@ addEventListener('touchend', e=>{
 }, {passive:true});
 
 /* ── self-update: poll version.json, offer one-tap refresh when GitHub has a newer build ── */
-const APP_VERSION = '2.5.0';   /* ⚠ 發佈時同步 bump 此值與 version.json */
+const APP_VERSION = '2.5.1';   /* ⚠ 發佈時同步 bump 此值與 version.json */
 document.getElementById('verLabel').textContent = 'v'+APP_VERSION;
 let latestV = null;
 async function checkUpdate(){
@@ -1096,7 +1118,7 @@ addEventListener('keydown', e=>{
     document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
   }
   else if(e.key===' '){ e.preventDefault();
-    if(fileMode) document.getElementById('playBtn').click();
+    if(fileMode || srcType==='demo') document.getElementById('playBtn').click();
   }
 });
 
