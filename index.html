@@ -175,7 +175,7 @@ h1 .slash{color:var(--magenta);text-shadow:0 0 10px var(--magenta)}
     <button class="mode" data-m="1"><span class="num">02</span>FIRE<span class="zh">火焰</span></button>
     <button class="mode" data-m="2"><span class="num">03</span>RAIN<span class="zh">雨滴玻璃</span></button>
     <button class="mode" data-m="3"><span class="num">04</span>LAVA<span class="zh">熔岩燈</span></button>
-    <button class="mode" data-m="4"><span class="num">05</span>MIST<span class="zh">雨林晨霧</span></button>
+    <button class="mode" data-m="4"><span class="num">05</span>MIST<span class="zh">森林霧氣</span></button>
     <button class="mode" data-m="5"><span class="num">06</span>ROAD<span class="zh">迷霧道路</span></button>
     <button id="autoBtn">AUTO CYCLE · OFF</button>
   </div>
@@ -334,55 +334,59 @@ vec3 sceneFire(vec2 uv){
   return hueRot(col, uHue*.55);        /* slow drift toward plasma hues */
 }
 
-/* ═══ 03 RAIN 雨滴玻璃 — droplets over neon bokeh ═══ */
+/* ═══ 03 RAIN 雨滴玻璃 — still droplets living and dying over slowly-shifting bokeh ═══ */
 vec3 bokehBG(vec2 uv){
   vec3 col = vec3(.012,.02,.045);
   for(int i=0;i<16;i++){
     float fi = float(i);
     vec2 c = h22(vec2(fi*7.3+1., fi*2.9+5.));
-    vec2 pos = vec2(c.x, fract(c.y + uTime*.012*(c.x-.5)));
-    float sz = .045+.13*h11(fi*3.7+2.);
+    vec2 pos = vec2(c.x, fract(c.y + uTime*.006*(c.x-.5)));
+    float sz = (.045+.13*h11(fi*3.7+2.)) * (1.+.18*sin(uTime*.13+fi*1.9));
     float d = length((uv-pos)*vec2(aspect(),1.));
     float b = smoothstep(sz, sz*.25, d);
     vec3 cc = mix(vec3(.0,.85,1.), vec3(1.,.2,.9), h11(fi+2.3));
     if(h11(fi*9.1+4.)>.78) cc = vec3(1.,.6,.15);
     cc = hueRot(cc, uHue);
-    col += cc * b * (.1+.45*uLevel) * (.55+.45*sin(uTime*1.8+fi*2.2));
+    /* gradual glow drift: slow individual pulses + slow energy envelope */
+    col += cc * b * (.1+.4*uEnergy) * (.5+.5*sin(uTime*.31+fi*2.2));
   }
-  /* distant skyline strip */
-  float sky = smoothstep(.34,.32,uv.y)*smoothstep(.2,.3,uv.y);
-  col += vec3(.5,.15,.5)*sky*.25*(.4+uLevel);
   return col;
 }
-vec3 dropLayer(vec2 uv, float zoom, float speed, float seed){
+/* still droplets: each cell's drop lands, swells, sometimes slides off, repeats */
+vec4 dropCell(vec2 uv, float zoom, float seed){
   vec2 p = uv*vec2(aspect(),1.)*zoom + seed;
-  p.y += uTime*speed*(.5+uLevel*1.4);
   vec2 id = floor(p), f = fract(p)-.5;
   vec2 rnd = h22(id);
-  float on = step(.45, rnd.x);
-  vec2 dpos = (rnd-.5)*.62;
-  dpos.x += sin(uTime*2.5+rnd.y*20.)*.05*uTreble
-          + gustField((uv-.5)*vec2(aspect(),1.)*2.).x*.12;   /* local gust nudges drops */
-  float sz = (.07+.16*h11(id.x*13.1+id.y*7.7)) * on;
+  float phase = fract(uTime*(.04+.09*rnd.y) + rnd.x*61.7);   /* slow per-drop life */
+  float grow  = smoothstep(.02,.5, phase);                   /* lands, swells… */
+  float slide = smoothstep(.62,.92, phase);                  /* …then runs off */
+  float fade  = 1.-smoothstep(.9,1., phase);
+  vec2 origin = (rnd-.5)*vec2(.6,.3) + vec2(0.,.18);
+  vec2 dpos = origin;
+  dpos.y -= slide*.5;
+  dpos += gustField((uv-.5)*vec2(aspect(),1.)*2.)*.035;      /* gusts barely tremble them */
+  float sz = (.09+.2*h11(id.x*7.3+id.y*3.1)) * grow * fade * (.92+.18*uEnergy);
   float d = length(f-dpos);
-  float m = smoothstep(sz, sz*.45, d);
+  float m = smoothstep(sz, sz*.5, d);
   vec2 nrm = (f-dpos) * m / max(sz,.001);
-  return vec3(nrm, m);
+  /* wet trail left behind while sliding */
+  float tr = smoothstep(sz*.5, sz*.2, abs(f.x-dpos.x))
+           * step(dpos.y, f.y) * step(f.y, origin.y+.04)
+           * smoothstep(.0,.25, slide) * fade;
+  return vec4(nrm, m, tr);
 }
 vec3 sceneRain(vec2 uv){
-  vec3 d1 = dropLayer(uv, 7., .09, 0.);
-  vec3 d2 = dropLayer(uv, 13., .16, 37.);
-  vec2 nrm = d1.xy*.16 + d2.xy*.09;
+  vec4 d1 = dropCell(uv, 6., 0.);
+  vec4 d2 = dropCell(uv, 11., 37.);
+  vec2 nrm = d1.xy*.17 + d2.xy*.1;
   float mask = max(d1.z, d2.z);
+  float trail = max(d1.w, d2.w);
   vec3 col = bokehBG(uv + nrm);
   col = mix(col*.85, col*1.3, mask);             /* drops gather light */
-  col += vec3(.6,.9,1.)*pow(mask,6.)*.16;         /* specular kiss */
-  /* falling streaks in front */
-  vec2 gw = gustField((uv-.5)*vec2(aspect(),1.)*2.);
-  float st = smoothstep(.93,1., vnoise(vec2(uv.x*130. + uv.y*gw.x*38., uv.y*2.+uTime*(14.+uLevel*22.))));
-  col += vec3(.55,.8,1.)*st*.14*(.3+uLevel);
-  /* beat: lightning wash */
-  col += vec3(.5,.7,.9)*uBeat*.12;
+  col += vec3(.6,.9,1.)*pow(mask,6.)*.16;        /* specular kiss */
+  col = mix(col, col*1.22, trail*.7);            /* glistening wet trail */
+  /* beat: distant lightning wash */
+  col += vec3(.5,.7,.9)*uBeat*.1;
   return col;
 }
 
@@ -416,92 +420,58 @@ vec3 sceneLava(vec2 uv){
   return col;
 }
 
-/* ═══ 05 MIST 繪本雨林 — storybook canopy: drawn branches & leaves, slow spin, breathing zoom ═══ */
-mat2 rot2(float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c); }
-float sdVesica(vec2 p, float r, float d){
-  p = abs(p);
-  float b = sqrt(r*r - d*d);
-  return ((p.y-b)*d > p.x*b) ? length(p-vec2(0.,b)) : length(p-vec2(-d,0.))-r;
-}
-/* one illustrated branch growing from the frame edge toward centre.
-   returns x=stem, y=leaf, z=leaf tone hash, w=backlit leaf rim; out vein = mid-rib */
-vec4 branchSys(vec2 p, float seed, out float vein){
-  vec2 q = rot2(seed*2.39996 + sin(uTime*.05+seed*3.)*.03) * p;
-  q.x += 1.5;                                  /* base sits outside the frame */
-  q.y += (h11(seed*3.17)-.5)*1.15;             /* lateral offset — boughs don't all cross centre */
-  float s = q.x;
-  float bend = (h11(seed*5.7)-.5)*.5;
-  q.y += bend*s*s*.35;                         /* gentle storybook curve */
-  float taper = clamp(1.-s/1.8, 0., 1.);
-  float gate = step(0.,s)*step(s,1.85);
-  float stem = smoothstep(.03*taper+.012, .014*taper, abs(q.y))*gate;
-  /* paired pointed leaves in cells along the stem */
-  float freq = 3.;
-  float u = s*freq + seed*2.7;
-  float cell = floor(u);
-  float lsize = min(.1*taper+.03, .115);
-  float leaf = 0., rim = 0.; vein = 0.;
-  float g2 = gate*step(.15,s);
-  for(int k=0;k<4;k++){
-    float pairB = k<2 ? 0. : 1.;                 /* two interleaved leaf pairs per node */
-    float side = mod(float(k),2.)<.5 ? -1. : 1.;
-    float uu = u + pairB*.5;
-    float cellK = floor(uu);
-    float ch = h11(cellK*3.3+seed*7.7+pairB*5.1);
-    vec2 lq = vec2((fract(uu)-.5)/freq, q.y);
-    lq = rot2(side*(.55+.5*ch+pairB*.35)) * lq;
-    float ls = lsize*(1.-.25*pairB);
-    lq.y -= side*ls*1.15;
-    float sdv = sdVesica(lq, ls*1.3, ls*.9);
-    float ins = smoothstep(.012,-.012, sdv)*g2;
-    leaf = max(leaf, ins);
-    rim  = max(rim, max(ins - smoothstep(-.018,-.05, sdv)*g2, 0.));
-    vein = max(vein, ins*smoothstep(.011,.003, abs(lq.x)));
-  }
-  float tone = h11(cell*3.3+seed*7.7);
-  return vec4(stem, leaf, tone, rim);
+/* ═══ 05 MIST 森林霧氣 — layered silhouettes, thick trunks, glare sweeping left↔right ═══ */
+float forestLayer(vec2 uv, float fi, float drift){
+  float xs = uv.x*aspect()*(1.2+fi*.55) + fi*17.31 + drift;
+  float ground = .1 + fi*.085 + fbm(vec2(xs*1.6, fi*7.))*.14;
+  float m = smoothstep(ground+.004, ground-.004, uv.y);
+  float cells = 5.5 + fi*3.5;
+  float id = floor(xs*cells);
+  float fx = fract(xs*cells)-.5;
+  float h = h11(id*3.07+fi*7.7);
+  /* anchor the trunk to its cell-centre ground so it stands straight */
+  float gC = .1 + fi*.085 + fbm(vec2(((id+.5)/cells)*1.6, fi*7.))*.14;
+  float top = gC + h*h*(.6-fi*.05);
+  float wdt = .1 + .16*h;                              /* thick trunks */
+  float taper = smoothstep(top, gC, uv.y);             /* wider at base */
+  float halfW = wdt*(.35+.65*taper);
+  float trunk = smoothstep(halfW, halfW-.025, abs(fx))
+              * smoothstep(top+.004, top, uv.y) * step(.35,h);
+  return max(m, trunk);
 }
 vec3 sceneForest(vec2 uv){
-  vec2 asp = vec2(aspect(),1.);
-  vec2 sp = (uv-.5)*asp;
-  vec2 w = gustField(sp*2.);
-  /* fixed morning sun; the canopy spins around it */
-  vec2 sun = vec2(.14,.2);
-  float sd = length(sp-sun);
-  vec3 col = mix(vec3(.88,.95,.9), vec3(.32,.6,.56), smoothstep(.0,1.05,sd));
-  col += vec3(1.,.95,.68)*pow(max(0.,1.-sd*1.5),3.)*1.1;
-  float ang = atan(sp.y-sun.y, sp.x-sun.x);
-  col += vec3(1.,.93,.62)*pow(abs(sin(ang*5.+uTime*.06)),2.)*pow(max(0.,1.-sd*.8),2.)*.32;
-  /* camera: slow rotation + breathing zoom, tiny kick on the beat */
-  float zoom = 1. + .17*sin(uTime*.06) + uLevel*.05 + uBeat*.02;
-  float spin = uTime*.022;
-  float cover = 0.;
-  for(int L=0; L<3; L++){
-    float fl = float(L)/2.;                    /* 0 far … 1 near */
-    vec2 pp = rot2(spin*(1.-.3*fl) + fl*1.7) * sp / (zoom*(1.35-.5*fl));
-    pp += w*(.015+.035*fl);                    /* gusts & vocal breeze sway the boughs */
-    vec3 leafC = mix(vec3(.6,.73,.6), vec3(.13,.3,.2), fl);
-    vec3 stemC = mix(vec3(.55,.5,.42), vec3(.2,.16,.13), fl);
-    for(int i=0;i<7;i++){
-      float vn;
-      vec4 b = branchSys(pp, fl*34.7 + float(i), vn);
-      vec3 lc = leafC*(.72+.55*b.z);           /* two-tone leaves */
-      lc = mix(lc, lc*.55, vn);                /* mid-rib vein */
-      col = mix(col, stemC, b.x);
-      col = mix(col, lc, b.y);
-      col += vec3(1.,.9,.55)*b.w*pow(max(0.,1.-sd*1.15),2.)*.55;   /* backlit rims near the sun */
-      cover = max(cover, max(b.x, b.y));
-    }
+  vec3 fogC = vec3(.5,.74,.74);
+  vec2 w = gustField((uv-.5)*vec2(aspect(),1.)*2.);
+  /* the sun drifts slowly left ↔ right through the trees */
+  float sweep = abs(fract(uTime*.008)*2.-1.);
+  vec2 sun = vec2(mix(.1,.9,sweep), .82);
+  float sd = length((uv-sun)*vec2(aspect(),1.));
+  vec3 col = mix(vec3(.035,.075,.085), vec3(.4,.68,.66), pow(max(0.,1.-sd),2.)*(.55+.55*uMid));
+  col += vec3(1.,.75,.4)*pow(max(0.,1.-sd*1.6),5.)*.5;     /* amber core */
+  /* god rays — double set, swaying */
+  float ang = atan(uv.y-sun.y, (uv.x-sun.x)*aspect());
+  float rays = pow(abs(sin(ang*7.5 + uTime*.12)), 5.) * pow(max(0.,1.-sd*.85),2.);
+  rays += .65*pow(abs(sin(ang*17. - uTime*.07)), 9.) * pow(max(0.,1.-sd*.9),2.);
+  col += vec3(.65,.85,.8)*rays*(.2+.6*uMid);
+  /* bloom core + beat flare */
+  col += vec3(1.,.85,.55)*pow(max(0.,1.-sd*1.15),6.)*(.5+1.1*uBeat+.4*uMid);
+  /* anamorphic horizontal glare */
+  col += vec3(.7,.95,1.)*exp(-abs(uv.y-sun.y)*24.)*exp(-abs(uv.x-sun.x)*2.4)*(.2+.5*uMid+.4*uBeat);
+  /* layers far → near, fog breathes with the music */
+  for(int i=0;i<6;i++){
+    float fi = float(i);
+    float drift = uTime*.012*(fi+.6) + w.x*.008;   /* trees barely sway — they're trees */
+    float L = forestLayer(uv, 5.-fi, drift);            /* fi=0 farthest */
+    float depth = 1.-fi/5.;                             /* 1=far 0=near */
+    float fog = clamp(depth*.92*(.78+.5*uLevel) + .05, 0., 1.);
+    vec3 layerCol = mix(vec3(.012,.03,.032)*(.4+fi*.12), fogC*(.55+.5*uMid), fog);
+    col = mix(col, layerCol, L);
   }
-  /* glare through the leaves */
-  float shade = mix(1., .15, cover);
-  col += vec3(1.,.95,.7)*pow(max(0.,1.-sd*1.2),5.)*(.4+.9*uBeat+.3*uMid)*shade;
-  col += vec3(.9,1.,.9)*exp(-abs(sp.y-sun.y)*18.)*exp(-abs(sp.x-sun.x)*2.2)*(.1+.35*uMid)*shade;
-  /* storybook mist: soft rounded cloud washes, thickening and thinning */
-  float breathe = .4 + .27*sin(uTime*.1) + .16*sin(uTime*.041+2.) + .1*uLevel;
-  float mcloud = smoothstep(.42,.72, fbm(sp*1.7 + vec2(uTime*.045, uTime*.018)));
-  col = mix(col, vec3(.93,.96,.93), clamp(mcloud*breathe, 0., .85));
-  return hueRot(col, uHue*.18);
+  /* ground mist band */
+  float band = smoothstep(.32,.0,uv.y) * (fbm(vec2(uv.x*3.+uTime*.05+w.x*.8, uv.y*6.))*.8+.2);
+  col = mix(col, fogC*(.5+.4*uLevel), band*.5);
+  col += vec3(.6,.9,.85)*uBeat*.07;
+  return hueRot(col, uHue*.3);
 }
 
 /* ═══ 06 ROAD 迷霧道路 — fog highway, spectrum skyline ═══ */
