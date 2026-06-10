@@ -164,7 +164,12 @@ h1 .slash{color:var(--magenta);text-shadow:0 0 10px var(--magenta)}
   #playBtn,#rateBtn{height:30px}
   #playBtn{width:34px}
   #seek{height:16px}
-  header h1{font-size:17px}
+  header{max-width:calc(100vw - 150px)}
+  header h1{font-size:17px;letter-spacing:.16em}
+  .kana{font-size:10px;letter-spacing:.26em}
+  .sub{font-size:9px;letter-spacing:.2em;line-height:1.35;max-width:220px}
+  #status{font-size:9px;line-height:1.45}
+  #clock{font-size:16px}
 }
 </style>
 </head>
@@ -178,7 +183,7 @@ h1 .slash{color:var(--magenta);text-shadow:0 0 10px var(--magenta)}
   <header>
     <h1>TEARS<span class="slash"> // </span>RAIN</h1>
     <div class="kana">雨中之淚 ・ レプリカント音響系</div>
-    <div class="sub">AUDIO-REACTIVE SYSTEM <b>v2.049</b> — MORE HUMAN THAN HUMAN</div>
+    <div class="sub">AUDIO-REACTIVE SYSTEM <b>v2.060</b> — MORE HUMAN THAN HUMAN</div>
   </header>
 
   <div id="status">
@@ -194,8 +199,8 @@ h1 .slash{color:var(--magenta);text-shadow:0 0 10px var(--magenta)}
     <button class="mode" data-m="1"><span class="num">02</span>FIRE<span class="zh">火焰</span></button>
     <button class="mode" data-m="2"><span class="num">03</span>RAIN<span class="zh">雨滴玻璃</span></button>
     <button class="mode" data-m="3"><span class="num">04</span>LAVA<span class="zh">熔岩燈</span></button>
-    <button class="mode" data-m="4"><span class="num">05</span>MIST<span class="zh">森林霧氣</span></button>
-    <button class="mode" data-m="5"><span class="num">06</span>ROAD<span class="zh">迷霧道路</span></button>
+    <button class="mode" data-m="4"><span class="num">05</span>MIST<span class="zh">迷霧雨林</span></button>
+    <button class="mode" data-m="5"><span class="num">06</span>ROAD<span class="zh">都市道路</span></button>
     <button id="autoBtn">AUTO CYCLE · OFF</button>
   </div>
   <button id="drawerTab" aria-label="開關視覺選單">▶</button>
@@ -261,7 +266,8 @@ uniform float uTime, uScroll;
 uniform float uBass, uMid, uTreble, uLevel, uBeat;
 uniform float uHue, uWind, uEnergy;
 uniform vec2  uBreeze;
-uniform vec4  uGust[4];
+uniform vec4  uGust[8];
+uniform vec4  uRain[8];
 uniform int   uMode;
 uniform sampler2D uFreq;
 
@@ -285,76 +291,85 @@ vec3 hueRot(vec3 c, float a){
   float ca = cos(a), sa = sin(a);
   return max(c*ca + cross(k,c)*sa + k*dot(k,c)*(1.-ca), 0.);
 }
-/* localized gusts: each beat blows in from a random corner with a soft
-   attack/decay envelope — stirs the medium where it passes, never the whole frame */
+/* moving gust fronts: every beat keeps its own slow wind sheet, entering from
+   the screen edge toward the centre and leaving a curling wake. */
 vec2 gustField(vec2 q){
   vec2 w = vec2(0.);
-  for(int i=0;i<4;i++){
+  for(int i=0;i<8;i++){
     vec2 d = q - uGust[i].xy;
-    w += uGust[i].zw * exp(-dot(d,d)*1.7);
+    vec2 push = uGust[i].zw;
+    float amp = length(push);
+    vec2 dir = push / max(amp, .001);
+    vec2 tangent = vec2(-dir.y, dir.x);
+    float core = exp(-dot(d,d)*.82);
+    float wake = exp(-abs(dot(d,tangent))*2.0) * smoothstep(1.45, -.35, dot(d,dir));
+    vec2 curl = vec2(-d.y, d.x) * amp * core * (.32 + .18*sin(uTime*.19 + float(i)*1.7));
+    w += push*(core*.78 + wake*.22) + curl;
   }
   /* vocal breeze: the singing voice becomes a rippling draft, never a uniform push */
-  w += uBreeze * (vnoise(q*1.6 + uTime*.55)*.85 + .15);
+  w += uBreeze * (vnoise(q*.95 + uTime*.18)*.78 + .12);
   return w;
 }
 
-/* ═══ 01 SMOKE 煙霧 — domain-warped neon smoke ═══ */
+/* ═══ 01 SMOKE 煙霧 — slow inward wind, vortex smoke ═══ */
 vec3 sceneSmoke(vec2 uv){
   vec2 p = (uv-.5)*vec2(aspect(),1.)*2.4;
-  float t = uTime*.22;
-  /* gusts ripple the smoke locally; noise modulation breaks them into eddies */
+  float t = uTime*.14;
+  /* wind fronts pull the volume inward; the curl term turns that pull into eddies */
   vec2 w = gustField(p);
-  w *= .65 + .5*vnoise(p*2.6 + uTime*.8);
-  vec2 q = vec2(fbm(p+vec2(0.,-t)+w*.7), fbm(p+vec2(5.2,1.3)-t*.6+w*.5));
-  vec2 r = vec2(fbm(p+3.2*q+vec2(1.7,9.2)+t*.32),
-                fbm(p+3.2*q+vec2(8.3,2.8)-t*.21));
-  float f = fbm(p+3.0*r + w*.9 + vec2(0., uEnergy*.9));
-  vec3 col = vec3(.015,.035,.06);
-  vec3 cy = vec3(.0,.85,1.), mg = vec3(1.,.16,.84);
-  col = mix(col, cy*.62, smoothstep(.28,.86,f)*(.32+uLevel*1.25));
-  col = mix(col, mg*.7,  smoothstep(.5,.95,r.y)*(.22+uTreble*.9)*f);
-  col = mix(col, vec3(.35,.0,.5)*.6, smoothstep(.6,1.,q.x)*.5);
-  col += cy * pow(f,3.5) * uBeat * .9;
-  col += mg * pow(max(0.,r.x-.55)*2.2,2.) * uMid * .35;
+  float gm = length(w);
+  vec2 inward = -p / (.75 + dot(p,p));
+  vec2 swirl = vec2(-p.y,p.x) / (.95 + dot(p,p));
+  w += (inward*.62 + swirl*(.42+.12*sin(uTime*.11))) * gm;
+  w *= .62 + .46*vnoise(p*1.9 + uTime*.22);
+  vec2 q = vec2(fbm(p+vec2(0.,-t)+w*.55), fbm(p+vec2(5.2,1.3)-t*.38+w*.42));
+  vec2 r = vec2(fbm(p+2.85*q+vec2(1.7,9.2)+t*.22+w*.24),
+                fbm(p+2.85*q+vec2(8.3,2.8)-t*.16-w*.16));
+  float f = fbm(p+3.15*r + w*.68 + vec2(0., uEnergy*.55));
+  float core = smoothstep(.34,.88,f);
+  vec3 col = vec3(.008,.02,.035);
+  vec3 cy = vec3(.0,.78,1.), mg = vec3(1.,.13,.74), violet = vec3(.2,.05,.45);
+  col = mix(col, cy*.58, core*(.28+uLevel*.9));
+  col = mix(col, mg*.64,  smoothstep(.48,.92,r.y)*(.2+uTreble*.65)*f);
+  col = mix(col, violet*.75, smoothstep(.58,1.,q.x)*.48);
+  col += (cy*.55 + mg*.18) * pow(core,2.7) * (.18+gm*.28);
+  col += mg * pow(max(0.,r.x-.56)*2.1,2.) * uMid * .28;
   return hueRot(col, uHue);            /* palette drifts with the music */
 }
 
-/* ═══ 02 FIRE 火焰 — bass-fed flame + embers ═══ */
+/* ═══ 02 FIRE 火焰 — colour temperature and intensity, no spark field ═══ */
 vec3 sceneFire(vec2 uv){
   vec2 p = vec2((uv.x-.5)*aspect()*1.7, uv.y);
-  float t = uTime*1.6;
+  float t = uTime*1.35;
   float edge = 1.-smoothstep(.4,1.3,abs(p.x));
   /* gusts bend parts of the flame; height breathes with the slow energy envelope */
   vec2 w = gustField(vec2(p.x, uv.y*2.-1.));
-  float wx = w.x*(.3+uv.y*1.2)*2.0;
-  float n = fbm(vec2(p.x*3.0 - wx, p.y*4.2 - t - w.y*.5));
-  n += .55*fbm(vec2(p.x*7.5+9. - wx*1.7, p.y*9.5 - t*1.9));
+  float wx = w.x*(.25+uv.y*1.05)*1.55;
+  float n = fbm(vec2(p.x*2.8 - wx, p.y*4.0 - t - w.y*.32));
+  n += .55*fbm(vec2(p.x*7.2+9. - wx*1.5, p.y*9.0 - t*1.72));
   n /= 1.55;
-  float h = uv.y*1.3/(.34 + uEnergy*1.05) + (1.-edge)*.8;
-  float flame = clamp(n*1.7 - h + .12, 0., 1.);
-  flame = pow(flame, 1.45);
+  float lift = .42 + uEnergy*.92 + uBeat*.07;
+  float h = uv.y*1.24/lift + (1.-edge)*.78;
+  float flame = clamp(n*1.72 - h + .13, 0., 1.);
+  flame = pow(flame, 1.34);
+  float heat = clamp(uEnergy*.75 + uBass*.55 + uBeat*.3, 0., 1.35);
+  float oxygen = clamp(uTreble*.42 + uBeat*.18, 0., .65);
   vec3 col = vec3(0.);
-  col = mix(col, vec3(.55,.04,.02), smoothstep(.02,.28,flame));
-  col = mix(col, vec3(1.,.38,.04),  smoothstep(.28,.6,flame));
-  col = mix(col, vec3(1.,.85,.4),   smoothstep(.6,.86,flame));
-  col = mix(col, vec3(1.,.99,.92),  smoothstep(.86,1.,flame));
-  /* embers */
-  for(int i=0;i<3;i++){
-    float fi = float(i);
-    float sc = 14.+fi*9.;
-    vec2 gp = vec2(uv.x*sc + w.x*uv.y*sc*.35, uv.y*sc - uTime*(2.6+fi*1.7+uEnergy*6.));
-    vec2 id = floor(gp); vec2 fr = fract(gp)-.5;
-    vec2 off = (h22(id+fi*31.)-.5)*.7;
-    float life = h11(id.x*7.+id.y*3.+fi);
-    float em = smoothstep(.07,.0,length(fr-off)) * step(.82,life) * uv.y;
-    col += vec3(1.,.55,.12)*em*(1.2+uBeat*2.);
-  }
-  /* heat haze glow at base */
-  col += vec3(.6,.12,.02)*pow(1.-uv.y,3.)*edge*(.4+uEnergy*.7);
-  return hueRot(col, uHue*.55);        /* slow drift toward plasma hues */
+  col = mix(col, vec3(.34,.015,.006), smoothstep(.02,.25,flame));
+  col = mix(col, vec3(.95,.18,.025),  smoothstep(.20,.50,flame));
+  col = mix(col, vec3(1.,.58,.12),    smoothstep(.46,.72,flame));
+  col = mix(col, vec3(1.,.92,.58),    smoothstep(.68,.90,flame));
+  col = mix(col, vec3(1.,.98,.90),    smoothstep(.86,1.,flame)*(.65+.35*heat));
+  vec3 blueCore = vec3(.24,.52,1.) * oxygen * smoothstep(.62,.96,flame) * edge;
+  col += blueCore*.55;
+  col *= .72 + heat*.62;
+  col += mix(vec3(.75,.09,.015), vec3(1.,.58,.16), heat)
+       * pow(max(0.,1.-uv.y),2.7)*edge*(.34+uEnergy*.8+uBeat*.22);
+  col += vec3(1.,.45,.06)*pow(flame,2.4)*(.12+uBeat*.18);
+  return hueRot(col, uHue*.08);        /* subtle drift, but it remains recognisably fire */
 }
 
-/* ═══ 03 RAIN 雨滴玻璃 — still droplets living and dying over slowly-shifting bokeh ═══ */
+/* ═══ 03 RAIN 雨滴玻璃 — beat-triggered foreground drops over soft bokeh ═══ */
 vec3 bokehBG(vec2 uv){
   vec3 col = vec3(.012,.02,.045);
   for(int i=0;i<16;i++){
@@ -372,41 +387,63 @@ vec3 bokehBG(vec2 uv){
   }
   return col;
 }
-/* still droplets: each cell's drop lands, swells, sometimes slides off, repeats */
-vec4 dropCell(vec2 uv, float zoom, float seed){
+/* condensation beads sit on the glass; they do not keep crawling down. */
+vec4 condensationCell(vec2 uv, float zoom, float seed){
   vec2 p = uv*vec2(aspect(),1.)*zoom + seed;
   vec2 id = floor(p), f = fract(p)-.5;
   vec2 rnd = h22(id);
-  float phase = fract(uTime*(.04+.09*rnd.y) + rnd.x*61.7);   /* slow per-drop life */
-  float grow  = smoothstep(.02,.5, phase);                   /* lands, swells… */
-  float slide = smoothstep(.62,.92, phase);                  /* …then runs off */
-  float fade  = 1.-smoothstep(.9,1., phase);
-  vec2 origin = (rnd-.5)*vec2(.6,.3) + vec2(0.,.18);
-  vec2 dpos = origin;
-  dpos.y -= slide*.5;
-  dpos += gustField((uv-.5)*vec2(aspect(),1.)*2.)*.035;      /* gusts barely tremble them */
-  float sz = (.09+.2*h11(id.x*7.3+id.y*3.1)) * grow * fade * (.92+.18*uEnergy);
+  float alive = .74 + .26*sin(uTime*.09 + rnd.x*9. + rnd.y*17.);
+  vec2 dpos = (rnd-.5)*vec2(.62,.42);
+  float sz = (.026+.075*h11(id.x*7.3+id.y*3.1)) * alive * (.9+.08*uEnergy);
   float d = length(f-dpos);
   float m = smoothstep(sz, sz*.5, d);
   vec2 nrm = (f-dpos) * m / max(sz,.001);
-  /* wet trail left behind while sliding */
-  float tr = smoothstep(sz*.5, sz*.2, abs(f.x-dpos.x))
-           * step(dpos.y, f.y) * step(f.y, origin.y+.04)
-           * smoothstep(.0,.25, slide) * fade;
-  return vec4(nrm, m, tr);
+  return vec4(nrm, m, 0.);
+}
+vec4 beatDrops(vec2 uv){
+  vec2 nrm = vec2(0.);
+  float mask = 0.;
+  float glow = 0.;
+  for(int i=0;i<8;i++){
+    float age = uRain[i].x;
+    float amp = uRain[i].y;
+    float seed = uRain[i].z;
+    float life = smoothstep(.0,.06,age) * (1.-smoothstep(.95,1.38,age));
+    float fall = age*(.62 + amp*.48);
+    for(int j=0;j<6;j++){
+      float fj = float(j);
+      float keep = step(h11(seed+fj*9.71), .42 + amp*.55);
+      float x = fract(seed*.013 + fj*.173 + h11(seed+fj*4.1)*.19);
+      float y = 1.16 - fall + (h11(seed+fj*6.3)-.5)*.18 + fj*.015;
+      vec2 pos = vec2(x,y);
+      vec2 d = (uv-pos)*vec2(aspect(),1.);
+      d.y *= .58;                              /* falling drop: optically taller */
+      float sz = mix(.018,.074,amp) * (.72 + .55*h11(seed+fj*2.7));
+      float len = length(d);
+      float outer = smoothstep(sz, sz*.44, len);
+      float inner = smoothstep(sz*.56, sz*.3, len);
+      float body = outer * life * keep;
+      float rim = max(0., outer-inner) * life * keep;
+      float hi = smoothstep(sz*.24, 0., length(d-vec2(-sz*.15, sz*.12))) * body;
+      nrm += vec2(d.x, d.y*.46) * body / max(sz,.001);
+      mask = max(mask, body);
+      glow = max(glow, rim*.7 + hi);
+    }
+  }
+  return vec4(nrm, mask, glow);
 }
 vec3 sceneRain(vec2 uv){
-  vec4 d1 = dropCell(uv, 6., 0.);
-  vec4 d2 = dropCell(uv, 11., 37.);
-  vec2 nrm = d1.xy*.17 + d2.xy*.1;
-  float mask = max(d1.z, d2.z);
-  float trail = max(d1.w, d2.w);
+  vec4 c1 = condensationCell(uv, 6., 0.);
+  vec4 c2 = condensationCell(uv, 12., 37.);
+  vec4 bd = beatDrops(uv);
+  vec2 nrm = c1.xy*.045 + c2.xy*.03 + bd.xy*.17;
+  float bead = max(c1.z, c2.z)*.55;
   vec3 col = bokehBG(uv + nrm);
-  col = mix(col*.85, col*1.3, mask);             /* drops gather light */
-  col += vec3(.6,.9,1.)*pow(mask,6.)*.16;        /* specular kiss */
-  col = mix(col, col*1.22, trail*.7);            /* glistening wet trail */
-  /* beat: distant lightning wash */
-  col += vec3(.5,.7,.9)*uBeat*.1;
+  col = mix(col*.85, col*1.22, bead);             /* small beads gather light */
+  col = mix(col, col*.88, bd.z*.08);              /* big drops are transparent glass, not white paint */
+  col += vec3(.72,.96,1.)*(bd.w*.4 + pow(bd.z,3.)*.08);
+  col += vec3(1.,.52,.9)*bd.w*.22;                /* magenta rim in big drops */
+  col += vec3(.48,.66,.86)*uBeat*.055;           /* distant lightning wash */
   return col;
 }
 
@@ -440,7 +477,7 @@ vec3 sceneLava(vec2 uv){
   return col;
 }
 
-/* ═══ 05 MIST 森林霧氣 — layered silhouettes, thick trunks, glare sweeping left↔right ═══ */
+/* ═══ 05 MIST 迷霧雨林 — layered jungle silhouettes, haze and prismatic glare ═══ */
 float forestLayer(vec2 uv, float fi, float drift){
   float xs = uv.x*aspect()*(1.2+fi*.55) + fi*17.31 + drift;
   float ground = .1 + fi*.085 + fbm(vec2(xs*1.6, fi*7.))*.14;
@@ -457,44 +494,57 @@ float forestLayer(vec2 uv, float fi, float drift){
   float halfW = wdt*(.35+.65*taper);
   float trunk = smoothstep(halfW, halfW-.025, abs(fx))
               * smoothstep(top+.004, top, uv.y) * step(.35,h);
-  return max(m, trunk);
+  float vine = smoothstep(.012,.0, abs(fx + .22*sin(uv.y*8. + fi)))
+             * smoothstep(gC+.05, top+.04, uv.y) * step(.55,h);
+  float canopy = smoothstep(.11,.0, length(vec2(fx*.85, uv.y-top-.05)))
+               * smoothstep(.45,1.,h);
+  return max(max(m, trunk), max(vine*.65, canopy*.8));
 }
 vec3 sceneForest(vec2 uv){
-  vec3 fogC = vec3(.5,.74,.74);
+  vec3 fogC = vec3(.34,.76,.58);
   vec2 w = gustField((uv-.5)*vec2(aspect(),1.)*2.);
-  /* the sun drifts slowly left ↔ right through the trees */
-  float sweep = abs(fract(uTime*.008)*2.-1.);
-  vec2 sun = vec2(mix(.1,.9,sweep), .82);
+  /* a veiled light source drifts behind the canopy, like coloured glare through mist */
+  float sweep = .5 + .5*sin(uTime*.012);
+  vec2 sun = vec2(mix(.18,.82,sweep), .74 + .04*sin(uTime*.017));
   float sd = length((uv-sun)*vec2(aspect(),1.));
-  vec3 col = mix(vec3(.035,.075,.085), vec3(.4,.68,.66), pow(max(0.,1.-sd),2.)*(.55+.55*uMid));
-  col += vec3(1.,.75,.4)*pow(max(0.,1.-sd*1.6),5.)*.5;     /* amber core */
-  /* god rays — double set, swaying */
+  vec3 col = mix(vec3(.004,.018,.016), vec3(.07,.15,.14), smoothstep(.0,1.,uv.y));
+  col += vec3(.16,.035,.24)*pow(max(0.,uv.y),1.8)*.42;      /* violet jungle dusk */
+  col += vec3(.22,.72,.58)*pow(max(0.,1.-sd),2.)*(.42+.55*uMid);
+  col += vec3(1.,.72,.34)*pow(max(0.,1.-sd*1.55),5.)*.52;   /* warm glare core */
+  /* god rays — multiple slow fans, softened by fog */
   float ang = atan(uv.y-sun.y, (uv.x-sun.x)*aspect());
-  float rays = pow(abs(sin(ang*7.5 + uTime*.12)), 5.) * pow(max(0.,1.-sd*.85),2.);
-  rays += .65*pow(abs(sin(ang*17. - uTime*.07)), 9.) * pow(max(0.,1.-sd*.9),2.);
-  col += vec3(.65,.85,.8)*rays*(.2+.6*uMid);
-  /* bloom core + beat flare */
-  col += vec3(1.,.85,.55)*pow(max(0.,1.-sd*1.15),6.)*(.5+1.1*uBeat+.4*uMid);
-  /* anamorphic horizontal glare */
-  col += vec3(.7,.95,1.)*exp(-abs(uv.y-sun.y)*24.)*exp(-abs(uv.x-sun.x)*2.4)*(.2+.5*uMid+.4*uBeat);
+  float rays = pow(abs(sin(ang*6.4 + uTime*.075)), 6.) * pow(max(0.,1.-sd*.82),2.);
+  rays += .55*pow(abs(sin(ang*14. - uTime*.05)), 10.) * pow(max(0.,1.-sd*.9),2.);
+  col += vec3(.56,1.,.72)*rays*(.18+.55*uMid);
+  col += vec3(.72,.28,1.)*rays*rays*(.1+.28*uTreble);
+  /* bloom core + beat flare, restrained so the forest remains misty */
+  col += vec3(1.,.82,.46)*pow(max(0.,1.-sd*1.12),6.)*(.42+.55*uBeat+.35*uMid);
+  /* anamorphic glare and thin fog veils */
+  col += vec3(.58,.95,1.)*exp(-abs(uv.y-sun.y)*24.)*exp(-abs(uv.x-sun.x)*2.15)*(.16+.4*uMid+.22*uBeat);
+  float veil = fbm(vec2(uv.x*2.1 + uTime*.018 + w.x*.35, uv.y*7.2 - uTime*.025 + w.y*.22));
+  float veil2 = fbm(vec2(uv.x*4.0 - uTime*.011, uv.y*13. + uTime*.018));
+  col = mix(col, fogC*(.42+.2*uLevel), smoothstep(.38,.86,veil)*.18);
+  col += hueRot(vec3(.08,.25,.22), uHue*.35)*smoothstep(.58,.94,veil2)*.16;
+  col += vec3(.24,.06,.32)*smoothstep(.62,.96,veil2)*(.08+.12*uMid);
   /* layers far → near, fog breathes with the music */
   for(int i=0;i<6;i++){
     float fi = float(i);
-    float drift = uTime*.012*(fi+.6) + w.x*.008;   /* trees barely sway — they're trees */
+    float drift = uTime*.009*(fi+.6) + w.x*.006;   /* trees barely sway — they're trees */
     float L = forestLayer(uv, 5.-fi, drift);            /* fi=0 farthest */
     float depth = 1.-fi/5.;                             /* 1=far 0=near */
-    float fog = clamp(depth*.92*(.78+.5*uLevel) + .05, 0., 1.);
-    vec3 layerCol = mix(vec3(.012,.03,.032)*(.4+fi*.12), fogC*(.55+.5*uMid), fog);
+    float fog = clamp(depth*.78*(.78+.42*uLevel) + .03, 0., 1.);
+    vec3 shade = mix(vec3(.005,.018,.014), vec3(.018,.045,.034), fi/5.);
+    vec3 layerCol = mix(shade, fogC*(.46+.45*uMid), fog);
     col = mix(col, layerCol, L);
   }
   /* ground mist band */
-  float band = smoothstep(.32,.0,uv.y) * (fbm(vec2(uv.x*3.+uTime*.05+w.x*.8, uv.y*6.))*.8+.2);
-  col = mix(col, fogC*(.5+.4*uLevel), band*.5);
-  col += vec3(.6,.9,.85)*uBeat*.07;
+  float band = smoothstep(.38,.0,uv.y) * (fbm(vec2(uv.x*2.4+uTime*.026+w.x*.45, uv.y*6.))*.78+.22);
+  col = mix(col, fogC*(.42+.28*uLevel), band*.46);
+  col += vec3(.58,.95,.76)*uBeat*.045;
   return hueRot(col, uHue*.3);
 }
 
-/* ═══ 06 ROAD 迷霧道路 — fog highway, spectrum skyline ═══ */
+/* ═══ 06 ROAD 都市道路 — dystopian cyberpunk highway, wet neon and skyline fog ═══ */
 vec3 sceneRoad(vec2 uv){
   vec2 p = uv*2.-1.; p.x *= aspect();
   float horizon = .12;
@@ -504,55 +554,64 @@ vec3 sceneRoad(vec2 uv){
     float dist = 1./max(z, 1e-3);
     float zpos = dist + uScroll;
     float x = p.x*dist;
-    vec3 g = vec3(.018,.022,.032);
-    g += vnoise(vec2(x*2.5, zpos*.7))*.022;                 /* asphalt grain */
-    float dash = smoothstep(.08,.05,abs(x)) * step(.55, fract(zpos*.35));
-    g += vec3(1.,.8,.25)*dash*1.6;                          /* center dashes */
-    float side = smoothstep(.05,.0,abs(abs(x)-1.35));
-    g += vec3(.0,.9,1.)*side*1.3;                           /* neon edges */
-    float side2 = smoothstep(.07,.0,abs(abs(x)-1.66));
-    g += hueRot(vec3(1.,.18,.8), uHue)*side2*.95;           /* outer magenta rail */
+    vec3 g = vec3(.01,.012,.018);
+    g += vnoise(vec2(x*2.7, zpos*.75))*.026;                 /* wet asphalt grain */
+    float dash = smoothstep(.075,.035,abs(x)) * smoothstep(.42,.58, fract(zpos*.38));
+    g += vec3(1.,.64,.18)*dash*(1.15+uBass*.55);             /* sodium center dashes */
+    float lane = smoothstep(.035,.0,abs(abs(x)-.62));
+    g += vec3(.1,.95,1.)*lane*.42;
+    float side = smoothstep(.05,.0,abs(abs(x)-1.28));
+    g += vec3(.0,.92,1.)*side*1.65;                          /* cyan guard light */
+    float side2 = smoothstep(.075,.0,abs(abs(x)-1.62));
+    g += hueRot(vec3(1.,.12,.72), uHue*.55)*side2*1.15;      /* magenta outer rail */
     /* wet asphalt mirrors the skyline neon */
     float gw = 56.;
     float gid = floor(uv.x*gw);
     float gspec = texture(uFreq, vec2(abs(((gid+.5)/gw)*2.-1.), .5)).r;
-    float smear = .5+.5*vnoise(vec2(uv.x*170., p.y*34.));
-    g += hueRot(vec3(1.,.2,.75), h11(gid)*2.4 + uHue)*gspec*gspec*exp(-z*7.)*smear*1.1;
-    float fog = 1.-exp(-dist*.16*(1.+uBass*.45));
-    vec3 fogc = mix(vec3(.05,.09,.13), hueRot(vec3(.45,.16,.42), uHue*.6), .3+.35*uLevel);
+    float smear = .42+.58*vnoise(vec2(uv.x*170., p.y*34. + uTime*.02));
+    g += hueRot(vec3(1.,.18,.66), h11(gid)*2.4 + uHue*.6)*gspec*gspec*exp(-z*6.2)*smear*1.45;
+    g += vec3(.15,.85,1.)*exp(-z*4.8)*smoothstep(.85,.0,abs(x))*uLevel*.18;
+    float fog = 1.-exp(-dist*.18*(1.+uBass*.5));
+    vec3 fogc = mix(vec3(.035,.065,.078), hueRot(vec3(.42,.12,.32), uHue*.42), .28+.32*uLevel);
     col = mix(g, fogc, clamp(fog,0.,1.));
   } else {
     float sy = p.y - horizon;
-    /* sky colour cycles slowly — dusk purple, teal night, magenta smog… */
-    float cyc = uTime*.045;
-    vec3 horizC = hueRot(vec3(.07,.04,.12), cyc);
-    vec3 zenC   = hueRot(vec3(.012,.012,.035), -cyc*.6);
+    /* poisoned dusk: sodium smog below, petroleum teal above */
+    float cyc = uTime*.026;
+    vec3 horizC = mix(vec3(.16,.055,.06), hueRot(vec3(.24,.08,.2), cyc), .45);
+    vec3 zenC   = mix(vec3(.006,.012,.028), vec3(.018,.04,.055), .65+.25*sin(cyc));
     col = mix(horizC, zenC, smoothstep(0.,1.,sy*1.3));
     /* drifting coloured smog banks */
-    col += hueRot(vec3(.09,.03,.11), cyc*1.4)*fbm(vec2(uv.x*2.6+uTime*.012, sy*2.4))*smoothstep(.05,.45,sy)*.7;
-    /* spectrum skyline */
+    col += hueRot(vec3(.13,.035,.10), cyc*1.15)*fbm(vec2(uv.x*2.2+uTime*.01, sy*2.7))*smoothstep(.02,.48,sy)*.82;
+    col += vec3(.38,.12,.08)*exp(-sy*7.5)*(.35+.35*uLevel); /* apocalyptic horizon burn */
+    /* dense skyline: spectrum drives roof glow, random mass gives real city depth */
     float colW = 56.;
     float cid = floor(uv.x*colW);
     float xq = (cid+.5)/colW;
     float spec = texture(uFreq, vec2(abs(xq*2.-1.), .5)).r;
-    float bh = spec*spec*.3 + h11(cid)*.02;
+    float bh = .035 + pow(h11(cid*1.73),2.4)*.48 + spec*spec*.22;
+    bh *= .66 + .34*smoothstep(.02,.75,abs(xq-.5)*2.);
     if(sy < bh){
-      col = vec3(.008,.014,.022);
-      /* mixed neon windows: amber + cyan */
-      vec2 wid = floor(vec2(uv.x*colW*3., sy*90.));
-      float win = step(.9, h21(wid));
-      vec3 wc = h21(wid+7.3)>.5 ? vec3(.15,.9,1.) : vec3(1.,.6,.2);
-      col += wc*win*.55;
+      col = vec3(.004,.009,.015);
+      vec2 wid = floor(vec2(uv.x*colW*3.2, sy*92.));
+      float win = step(.91, h21(wid));
+      float strip = smoothstep(.04,.0,abs(fract(uv.x*colW*1.6)-.5));
+      vec3 wc = h21(wid+7.3)>.54 ? vec3(.12,.92,1.) : vec3(1.,.44,.16);
+      col += wc*win*(.42+.5*spec);
+      col += hueRot(vec3(1.,.08,.64), uHue*.45)*strip*.12;
     }
     vec3 roof = hueRot(vec3(1.,.2,.75), h11(cid)*2.4 + uHue);        /* per-tower neon hue */
-    col += roof*smoothstep(.014,.0,abs(sy-bh))*spec*2.6;
-    /* mega ad-signs hovering in the smog */
-    for(int i=0;i<5;i++){
+    col += roof*smoothstep(.015,.0,abs(sy-bh))*spec*2.8;
+    col += vec3(.03,.09,.11)*smoothstep(.0,.28,bh-sy)*(1.-smoothstep(bh-.08, bh, sy));
+    /* holographic ad blocks hovering in smog */
+    for(int i=0;i<6;i++){
       float fi = float(i);
-      vec2 sp = vec2(h11(fi*3.31+1.)*2.4-1.2, .1+h11(fi*7.13+2.)*.42);
-      float fl = .55+.45*sin(uTime*(2.2+fi*1.7)+fi*9.);              /* sign flicker */
+      vec2 sp = vec2(h11(fi*3.31+1.)*2.4-1.2, .08+h11(fi*7.13+2.)*.46);
+      float fl = .58+.42*sin(uTime*(1.7+fi*1.25)+fi*9.);             /* sign flicker */
       vec3 nc = hueRot(mix(vec3(0.,.9,1.), vec3(1.,.15,.8), h11(fi+.51)), uHue);
-      col += nc*exp(-length(vec2((p.x-sp.x)*1.6,(sy-sp.y)*5.5))*16.)*fl*(.4+.7*uLevel);
+      float panel = exp(-length(vec2((p.x-sp.x)*1.55,(sy-sp.y)*5.3))*18.);
+      col += nc*panel*fl*(.34+.7*uLevel);
+      col += nc*smoothstep(.012,.0,abs(sy-sp.y))*exp(-abs(p.x-sp.x)*2.6)*.05;
     }
     /* spinner traffic light-trails */
     for(int i=0;i<3;i++){
@@ -563,19 +622,19 @@ vec3 sceneRoad(vec2 uv){
       float dx = (p.x-sx)*dir;
       float streak = (exp(dx*5.)*step(dx,0.) + exp(-abs(dx)*30.))*exp(-abs(sy-sy0)*70.);
       vec3 scol = fi<1.5 ? vec3(1.,.25,.45) : vec3(.3,.9,1.);
-      col += scol*streak*.5;
+      col += scol*streak*.58;
     }
-    col += hueRot(vec3(.85,.3,.6), uHue*.6)*exp(-sy*8.)*(.25+.55*uLevel); /* horizon haze */
-    col += vec3(.4,.1,.5)*exp(-sy*2.5)*.18;
+    col += hueRot(vec3(.85,.24,.48), uHue*.48)*exp(-sy*8.)*(.28+.58*uLevel); /* horizon haze */
+    col += vec3(.35,.08,.42)*exp(-sy*2.3)*.16;
     /* twin drifting searchlights */
     float beam = pow(abs(sin(atan(sy, p.x - sin(uTime*.1)*1.2)*2. + uTime*.2)), 60.);
     beam += pow(abs(sin(atan(sy, p.x + sin(uTime*.13+2.)*1.5)*2. - uTime*.17)), 70.);
-    col += vec3(.5,.7,.9)*beam*exp(-sy*2.)*.2;
+    col += vec3(.52,.75,.92)*beam*exp(-sy*2.)*.22;
   }
-  /* windshield rain flecks */
-  float fl = smoothstep(.96,1., vnoise(vec2(uv.x*90.+uv.y*uWind*32., uv.y*40.+uTime*(8.+uLevel*30.))));
-  col += vec3(.4,.6,.8)*fl*.1;
-  col += vec3(.7,.4,.9)*uBeat*.08;
+  /* windshield moisture is a texture shimmer, not sliding raindrops */
+  float fl = smoothstep(.965,1., vnoise(vec2(uv.x*95.+uWind*8., uv.y*48.+uTime*.22)));
+  col += vec3(.45,.68,.82)*fl*.08;
+  col += vec3(.68,.36,.82)*uBeat*.055;
   return col;
 }
 
@@ -620,7 +679,7 @@ gl.enableVertexAttribArray(aPos);
 gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
 
 const U = {};
-for(const n of ['uRes','uTime','uScroll','uBass','uMid','uTreble','uLevel','uBeat','uHue','uWind','uEnergy','uBreeze','uGust','uMode','uFreq'])
+for(const n of ['uRes','uTime','uScroll','uBass','uMid','uTreble','uLevel','uBeat','uHue','uWind','uEnergy','uBreeze','uGust','uRain','uMode','uFreq'])
   U[n] = gl.getUniformLocation(prog, n);
 
 /* frequency texture: 64 bins */
@@ -652,13 +711,17 @@ let actx=null, analyser=null, monitor=null, freqData=null;
 let curSrcNode=null, curStream=null, mesNode=null;
 const player = document.getElementById('player');
 
+const GUST_COUNT = 8;
+const RAIN_COUNT = 8;
 const A = { bass:0, mid:0, treble:0, level:0, beat:0,
             bassAvg:0.01, lastBeat:0,
             hue:0, wind:0, windT:0, windSign:1, energy:0,
             vocal:0, breezeAng:.7,
-            gustIdx:0,
-            gusts:[0,1,2,3].map(()=>({x:9,y:9,dx:0,dy:0,amp:0,age:9})) };
-const gustArr = new Float32Array(16);
+            gustIdx:0, rainIdx:0,
+            gusts:Array.from({length:GUST_COUNT}, ()=>({sx:9,sy:9,tx:0,ty:0,x:9,y:9,dx:0,dy:0,amp:0,age:9,dur:3})),
+            rains:Array.from({length:RAIN_COUNT}, ()=>({age:9,amp:0,seed:0})) };
+const gustArr = new Float32Array(GUST_COUNT*4);
+const rainArr = new Float32Array(RAIN_COUNT*4);
 
 function ensureCtx(){
   if(actx) return;
@@ -693,6 +756,37 @@ function avgBins(lo, hi){
   let s=0; for(let i=lo;i<hi;i++) s+=freqData[i];
   return s/((hi-lo)*255);
 }
+function nextEventSlot(list, idxName, idleAge){
+  for(let i=0;i<list.length;i++){
+    const idx = (A[idxName] + i) % list.length;
+    if(list[idx].age > idleAge){ A[idxName] = idx + 1; return list[idx]; }
+  }
+  return list[A[idxName]++ % list.length];
+}
+function spawnGust(b){
+  const g = nextEventSlot(A.gusts, 'gustIdx', 2.4);
+  const side = Math.floor(Math.random()*4);
+  const spread = 1.55;
+  if(side===0){ g.sx = -spread; g.sy = (Math.random()-.5)*1.7; }
+  else if(side===1){ g.sx = spread; g.sy = (Math.random()-.5)*1.7; }
+  else if(side===2){ g.sx = (Math.random()-.5)*2.7; g.sy = -1.22; }
+  else { g.sx = (Math.random()-.5)*2.7; g.sy = 1.22; }
+  g.tx = (Math.random()-.5)*.34;
+  g.ty = (Math.random()-.5)*.26;
+  const len = Math.hypot(g.tx-g.sx, g.ty-g.sy) || 1;
+  g.dx = (g.tx-g.sx)/len;
+  g.dy = (g.ty-g.sy)/len;
+  g.x = g.sx; g.y = g.sy;
+  g.amp = .34 + 1.1*Math.min(1, b*1.9);
+  g.dur = 2.45 + Math.random()*1.15;
+  g.age = 0;
+}
+function spawnRain(b){
+  const r = nextEventSlot(A.rains, 'rainIdx', 1.2);
+  r.age = 0;
+  r.amp = Math.min(1, .18 + b*2.2);
+  r.seed = Math.random()*997.31;
+}
 function analyze(dt, now){
   if(!analyser) return;
   analyser.getByteFrequencyData(freqData);
@@ -713,13 +807,8 @@ function analyze(dt, now){
     A.windSign *= -1;                         /* lateral drift alternates sides */
     A.windT = A.windSign*(.5 + .9*b);
     A.hue += .14;                             /* palette kick on the downbeat */
-    /* spawn a localized gust blowing in from a random corner */
-    const g = A.gusts[A.gustIdx++ % 4];
-    const ang = Math.random()*6.2832;
-    g.dx = Math.cos(ang); g.dy = Math.sin(ang)*.7;
-    g.x = -g.dx*1.4 + (Math.random()-.5)*1.2;
-    g.y = -g.dy*1.1 + (Math.random()-.5);
-    g.amp = .5 + .9*b; g.age = 0;
+    spawnGust(b);                             /* a separate inward gust for each accent */
+    spawnRain(b);                             /* foreground drops scale with accent weight */
   }
   A.beat *= Math.pow(.012, dt);
   A.windT *= Math.pow(.05, dt);
@@ -728,11 +817,24 @@ function analyze(dt, now){
   A.vocal  += (m*1.7 - A.vocal)*Math.min(1, dt*3.2);  /* vocal band → wandering breeze */
   A.breezeAng += dt*(.13 + .3*Math.abs(Math.sin(now*.047)));
   A.hue += dt*(.05 + .2*A.treble);            /* constant slow colour drift */
-  for(let i=0;i<4;i++){
+  for(let i=0;i<GUST_COUNT;i++){
     const g = A.gusts[i]; g.age += dt;
-    const s = g.amp * Math.min(1, g.age/.13) * Math.exp(-g.age/.8);
+    const travel = Math.min(1, g.age/g.dur);
+    const eased = travel*travel*(3-2*travel);
+    g.x = g.sx + (g.tx-g.sx)*eased;
+    g.y = g.sy + (g.ty-g.sy)*eased;
+    const attack = Math.min(1, g.age/.38);
+    const decay = Math.exp(-Math.max(0, g.age-.18)/2.15);
+    const s = g.amp * attack * decay;
     gustArr[i*4]   = g.x;     gustArr[i*4+1] = g.y;
     gustArr[i*4+2] = g.dx*s;  gustArr[i*4+3] = g.dy*s;
+  }
+  for(let i=0;i<RAIN_COUNT;i++){
+    const r = A.rains[i]; r.age += dt;
+    rainArr[i*4]   = r.age;
+    rainArr[i*4+1] = r.age < 1.35 ? r.amp : 0;
+    rainArr[i*4+2] = r.seed;
+    rainArr[i*4+3] = 0;
   }
   /* freq texture (log-ish bin spread) */
   for(let i=0;i<FREQ_W;i++){
@@ -1046,10 +1148,12 @@ addEventListener('drop', e=>{
 });
 
 /* ═══════════════ UI state ═══════════════ */
-let mode = 0, autoCycle = false, lastAuto = 0, scroll = 0;
+let mode = 0, autoCycle = false, lastAuto = 0, scroll = 0, idleT = performance.now();
 const modeBtns = [...document.querySelectorAll('.mode')];
 function setMode(m, fromAuto){
   mode = m; A.beat = Math.max(A.beat, .9); /* transition flash */
+  spawnGust(.38);
+  if(m===2) spawnRain(.7);
   modeBtns.forEach(b=>b.classList.toggle('active', +b.dataset.m===m));
   if(!fromAuto){ autoCycle && toggleAuto(); }
   if(!fromAuto && innerWidth<=760) setDrawer(false);  /* picked a mode → tuck the drawer away */
@@ -1077,7 +1181,7 @@ addEventListener('touchend', e=>{
 }, {passive:true});
 
 /* ── self-update: poll version.json, offer one-tap refresh when GitHub has a newer build ── */
-const APP_VERSION = '2.5.1';   /* ⚠ 發佈時同步 bump 此值與 version.json */
+const APP_VERSION = '2.6.0';   /* ⚠ 發佈時同步 bump 此值與 version.json */
 document.getElementById('verLabel').textContent = 'v'+APP_VERSION;
 let latestV = null;
 async function checkUpdate(){
@@ -1123,7 +1227,6 @@ addEventListener('keydown', e=>{
 });
 
 /* idle UI fade */
-let idleT = 0;
 function pokeUI(){ idleT = performance.now(); document.getElementById('ui').classList.remove('hidden'); }
 addEventListener('mousemove', pokeUI); addEventListener('touchstart', pokeUI, {passive:true});
 
@@ -1177,6 +1280,7 @@ function frame(now){
   const bm = .08 + .55*Math.min(A.vocal, 1.2);
   gl.uniform2f(U.uBreeze, Math.cos(A.breezeAng)*bm, Math.sin(A.breezeAng)*.4*bm);
   gl.uniform4fv(U.uGust, gustArr);
+  gl.uniform4fv(U.uRain, rainArr);
   gl.uniform1i(U.uMode, mode);
   gl.bindTexture(gl.TEXTURE_2D, freqTex);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
