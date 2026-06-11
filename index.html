@@ -863,18 +863,20 @@ function avgBins(lo, hi){
   let s=0; for(let i=lo;i<hi;i++) s+=freqData[i];
   return s/((hi-lo)*255);
 }
-function nextEventSlot(list, idxName, idleAge){
-  for(let i=0;i<list.length;i++){
-    const idx = (A[idxName] + i) % list.length;
-    if(list[idx].age > idleAge){ A[idxName] = idx + 1; return list[idx]; }
-  }
-  return list[A[idxName]++ % list.length];
+function gustStrength(g){
+  const attack = Math.min(1, g.age/.38);
+  const decay = Math.exp(-Math.max(0, g.age-.18)/1.35);
+  return g.amp * attack * decay;
 }
 /* eight fixed inlet ports around the frame: E NE N NW W SW S SE.
    each beat picks one at random and lets a plume in through it. */
 const PORTS = [[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]];
 function spawnGust(b){
-  const g = nextEventSlot(A.gusts, 'gustIdx', 2.4);
+  /* never recycle a slot that is still visible — a vanishing vortex snaps the whole frame.
+     if every slot is busy, skip this spawn: a missing plume is invisible, a snap is not. */
+  let g = null, lowS = 1e9;
+  for(const c of A.gusts){ const s = gustStrength(c); if(s < lowS){ lowS = s; g = c; } }
+  if(lowS > .05) return;
   const portI = Math.floor(Math.random()*8);
   const aspNow = cv.width/Math.max(1, cv.height);
   const P = PORTS[portI];
@@ -934,9 +936,7 @@ function analyze(dt, now){
     const eased = travel*travel*(3-2*travel);
     g.x = g.sx + (g.tx-g.sx)*eased;
     g.y = g.sy + (g.ty-g.sy)*eased;
-    const attack = Math.min(1, g.age/.38);
-    const decay = Math.exp(-Math.max(0, g.age-.18)/2.15);
-    const s = g.amp * attack * decay;
+    const s = gustStrength(g);
     if(s > maxGustS) maxGustS = s;
     gustArr[i*4]   = g.x;     gustArr[i*4+1] = g.y;
     gustArr[i*4+2] = g.dx*s;  gustArr[i*4+3] = g.dy*s;
@@ -1319,7 +1319,7 @@ addEventListener('touchend', e=>{
 }, {passive:true});
 
 /* ── self-update: manual version check; no background polling during development ── */
-const APP_VERSION = '2.12.2';   /* ⚠ 發佈時同步 bump 此值與 version.json */
+const APP_VERSION = '2.12.3';   /* ⚠ 發佈時同步 bump 此值與 version.json */
 document.getElementById('verLabel').textContent = 'v'+APP_VERSION;
 let latestV = null, checkingUpdate = false;
 const updBtn = document.getElementById('updBtn');
