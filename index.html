@@ -359,13 +359,14 @@ vec3 sceneSmoke(vec2 uv){
   float dens = 0., portGlow = 0.;
   for(int i=0;i<8;i++){
     float amp = length(uGust[i].zw);
-    if(amp < .015) continue;
+    if(amp < .003) continue;
     float age = uGustEx[i].x;
     vec2 head = uGust[i].xy;                       /* eased inward from the port by JS */
     vec2 origin = uGustEx[i].zw;                   /* the inlet this plume came through */
     /* the plume curls as it advances — spin alternates with the chosen port */
     float sgn = mod(uGustEx[i].y, 2.) < 1. ? 1. : -1.;
-    q = vortexWarp(q, head, sgn*amp*1.4, .42+age*.15);
+    /* the swirl winds up gently over ~1.5s — the puff arrives fast, the spin develops slowly */
+    q = vortexWarp(q, head, sgn*amp*1.1*smoothstep(.0, 1.5, age), .42+age*.15);
     /* mass: a chain of puffs from the inlet to the head, billowing as it goes */
     for(int k=0;k<5;k++){
       float fk = float(k)/4.;
@@ -864,9 +865,12 @@ function avgBins(lo, hi){
   return s/((hi-lo)*255);
 }
 function gustStrength(g){
+  /* windowed envelope: fades to EXACTLY zero (exp decay never does, and the
+     residual snapped the smoke's slow texture when a slot was recycled) */
   const attack = Math.min(1, g.age/.38);
-  const decay = Math.exp(-Math.max(0, g.age-.18)/1.35);
-  return g.amp * attack * decay;
+  const f = Math.min(Math.max((g.age-1.2)/2.4, 0), 1);
+  const fade = 1 - f*f*(3-2*f);
+  return g.amp * attack * fade;
 }
 /* eight fixed inlet ports around the frame: E NE N NW W SW S SE.
    each beat picks one at random and lets a plume in through it. */
@@ -876,7 +880,7 @@ function spawnGust(b){
      if every slot is busy, skip this spawn: a missing plume is invisible, a snap is not. */
   let g = null, lowS = 1e9;
   for(const c of A.gusts){ const s = gustStrength(c); if(s < lowS){ lowS = s; g = c; } }
-  if(lowS > .05) return;
+  if(lowS > 1e-4) return;            /* reuse only a slot that has truly reached zero */
   const portI = Math.floor(Math.random()*8);
   const aspNow = cv.width/Math.max(1, cv.height);
   const P = PORTS[portI];
@@ -1319,7 +1323,7 @@ addEventListener('touchend', e=>{
 }, {passive:true});
 
 /* ── self-update: manual version check; no background polling during development ── */
-const APP_VERSION = '2.12.3';   /* ⚠ 發佈時同步 bump 此值與 version.json */
+const APP_VERSION = '2.12.4';   /* ⚠ 發佈時同步 bump 此值與 version.json */
 document.getElementById('verLabel').textContent = 'v'+APP_VERSION;
 let latestV = null, checkingUpdate = false;
 const updBtn = document.getElementById('updBtn');
