@@ -376,7 +376,6 @@ vec3 sceneSmoke(vec2 uv){
     }
     portGlow += amp * exp(-dot(p-origin,p-origin)*9.);   /* the inlet glints while open */
   }
-  q += uBreeze*(vnoise(p*1.3+t*.2)*.6+.2)*.35;
   /* wispy texture carved through the twisted space */
   vec2 drift = vec2(0., -t*.12);
   float body = fbm(q*1.6 + drift);
@@ -387,15 +386,14 @@ vec3 sceneSmoke(vec2 uv){
   vec3 bg = mix(vec3(.005,.012,.022), vec3(.014,.018,.032), uv.y);
   vec3 cy = vec3(.2,.85,1.), mg = vec3(1.,.2,.78);
   vec3 col = bg;
-  col += cy * dd * (.42+.5*uLevel);
+  col += cy * dd * (.45+.45*uEnergy);                    /* slow breathing, no flicker */
   col += vec3(.8,.95,1.) * pow(dd,2.3) * (.28+.22*fine);
-  col += mg * smoothstep(.5,1., fine+dd*.35) * dd * (.16+.3*uTreble);
+  col += mg * smoothstep(.5,1., fine+dd*.35) * dd * (.18+.2*uEnergy);
   col += cy * portGlow * .35;                            /* cyan breath at the open inlet */
-  col += cy * pow(dd,3.) * uBeat * .4;
   return hueRot(col, uHue*.5);
 }
 
-/* ═══ 02 FIRE 火焰 — two depth layers; the back flame dances on the beat ═══ */
+/* ═══ 02 FIRE 火焰 — two depth layers swaying on the gusts; no per-beat jolts ═══ */
 float flameShape(vec2 uv, float t, vec2 w, float wxAmp, float seed, float lift){
   vec2 p = vec2((uv.x-.5)*aspect()*1.7, uv.y);
   float edge = 1.-smoothstep(.4,1.3,abs(p.x));
@@ -412,17 +410,17 @@ vec3 sceneFire(vec2 uv){
   float edge = 1.-smoothstep(.4,1.3,abs(p.x));
   /* gusts bend parts of the flame; height breathes with the slow energy envelope */
   vec2 w = gustField(vec2(p.x, uv.y*2.-1.));
-  float lift = .42 + uEnergy*.92 + uBeat*.07;
+  float lift = .42 + uEnergy*.92;
   float flame = flameShape(uv, t, w, 1.55, 0., lift);
-  /* back layer: a taller ghost flame in a shifted hue, leaping on each beat */
-  float liftB = .56 + uEnergy*.66 + uBeat*.32;
+  /* back layer: a taller ghost flame in a shifted hue, breathing with the energy */
+  float liftB = .6 + uEnergy*.72;
   float backF = flameShape(uv, t*.72 + 5., w*1.5, 2.6, 37., liftB);
-  float heat = clamp(uEnergy*.75 + uBass*.55 + uBeat*.3, 0., 1.35);
-  float oxygen = clamp(uTreble*.42 + uBeat*.18, 0., .65);
+  float heat = clamp(uEnergy*1.1, 0., 1.35);
+  float oxygen = clamp(uEnergy*.4, 0., .6);
   vec3 col = vec3(0.);
   /* the ghost flame shows wherever the front flame thins out */
-  vec3 backC = hueRot(vec3(.85,.22,.06), uHue*.12 + 2.4 + uBeat*.5);
-  col += backC * pow(backF,1.25) * (.3+.34*uBeat+.1*uMid) * (1.-smoothstep(.08,.5,flame));
+  vec3 backC = hueRot(vec3(.85,.22,.06), uHue*.12 + 2.4);
+  col += backC * pow(backF,1.25) * (.32+.18*uEnergy) * (1.-smoothstep(.08,.5,flame));
   col = mix(col, vec3(.34,.015,.006), smoothstep(.02,.25,flame));
   col = mix(col, vec3(.95,.18,.025),  smoothstep(.20,.50,flame));
   col = mix(col, vec3(1.,.58,.12),    smoothstep(.46,.72,flame));
@@ -432,9 +430,9 @@ vec3 sceneFire(vec2 uv){
   col += blueCore*.55;
   col *= .72 + heat*.62;
   col += mix(vec3(.75,.09,.015), vec3(1.,.58,.16), heat)
-       * pow(max(0.,1.-uv.y),2.7)*edge*(.34+uEnergy*.8+uBeat*.22);
-  col += vec3(1.,.45,.06)*pow(flame,2.4)*(.12+uBeat*.18);
-  return hueRot(col, uHue*.08 + uBeat*.12);  /* each hit swings the colour gently, then settles */
+       * pow(max(0.,1.-uv.y),2.7)*edge*(.34+uEnergy*.8);
+  col += vec3(1.,.45,.06)*pow(flame,2.4)*.14;
+  return hueRot(col, uHue*.08);              /* slow drift only — it stays fire */
 }
 
 /* ═══ 04 LAVA 熔岩燈 — metaball lamp ═══ */
@@ -1321,7 +1319,7 @@ addEventListener('touchend', e=>{
 }, {passive:true});
 
 /* ── self-update: manual version check; no background polling during development ── */
-const APP_VERSION = '2.12.1';   /* ⚠ 發佈時同步 bump 此值與 version.json */
+const APP_VERSION = '2.12.2';   /* ⚠ 發佈時同步 bump 此值與 version.json */
 document.getElementById('verLabel').textContent = 'v'+APP_VERSION;
 let latestV = null, checkingUpdate = false;
 const updBtn = document.getElementById('updBtn');
