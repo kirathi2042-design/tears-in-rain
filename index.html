@@ -395,24 +395,34 @@ vec3 sceneSmoke(vec2 uv){
   return hueRot(col, uHue*.5);
 }
 
-/* ═══ 02 FIRE 火焰 — colour temperature and intensity, no spark field ═══ */
+/* ═══ 02 FIRE 火焰 — two depth layers; the back flame dances on the beat ═══ */
+float flameShape(vec2 uv, float t, vec2 w, float wxAmp, float seed, float lift){
+  vec2 p = vec2((uv.x-.5)*aspect()*1.7, uv.y);
+  float edge = 1.-smoothstep(.4,1.3,abs(p.x));
+  float wx = w.x*(.25+uv.y*1.05)*wxAmp;
+  float n = fbm(vec2(p.x*2.8 - wx + seed, p.y*4.0 - t - w.y*.32));
+  n += .55*fbm(vec2(p.x*7.2+9. - wx*1.5 + seed, p.y*9.0 - t*1.72));
+  n /= 1.55;
+  float h = uv.y*1.24/lift + (1.-edge)*.78;
+  return pow(clamp(n*1.72 - h + .13, 0., 1.), 1.34);
+}
 vec3 sceneFire(vec2 uv){
   vec2 p = vec2((uv.x-.5)*aspect()*1.7, uv.y);
   float t = uTime*1.35;
   float edge = 1.-smoothstep(.4,1.3,abs(p.x));
   /* gusts bend parts of the flame; height breathes with the slow energy envelope */
   vec2 w = gustField(vec2(p.x, uv.y*2.-1.));
-  float wx = w.x*(.25+uv.y*1.05)*1.55;
-  float n = fbm(vec2(p.x*2.8 - wx, p.y*4.0 - t - w.y*.32));
-  n += .55*fbm(vec2(p.x*7.2+9. - wx*1.5, p.y*9.0 - t*1.72));
-  n /= 1.55;
   float lift = .42 + uEnergy*.92 + uBeat*.07;
-  float h = uv.y*1.24/lift + (1.-edge)*.78;
-  float flame = clamp(n*1.72 - h + .13, 0., 1.);
-  flame = pow(flame, 1.34);
+  float flame = flameShape(uv, t, w, 1.55, 0., lift);
+  /* back layer: a taller ghost flame in a shifted hue, leaping on each beat */
+  float liftB = .56 + uEnergy*.66 + uBeat*.6;
+  float backF = flameShape(uv, t*.72 + 5., w*1.5, 2.6, 37., liftB);
   float heat = clamp(uEnergy*.75 + uBass*.55 + uBeat*.3, 0., 1.35);
   float oxygen = clamp(uTreble*.42 + uBeat*.18, 0., .65);
   vec3 col = vec3(0.);
+  /* the ghost flame shows wherever the front flame thins out */
+  vec3 backC = hueRot(vec3(.85,.22,.06), uHue*.12 + 2.4 + uBeat*.9);
+  col += backC * pow(backF,1.25) * (.3+.34*uBeat+.1*uMid) * (1.-smoothstep(.08,.5,flame));
   col = mix(col, vec3(.34,.015,.006), smoothstep(.02,.25,flame));
   col = mix(col, vec3(.95,.18,.025),  smoothstep(.20,.50,flame));
   col = mix(col, vec3(1.,.58,.12),    smoothstep(.46,.72,flame));
@@ -424,7 +434,7 @@ vec3 sceneFire(vec2 uv){
   col += mix(vec3(.75,.09,.015), vec3(1.,.58,.16), heat)
        * pow(max(0.,1.-uv.y),2.7)*edge*(.34+uEnergy*.8+uBeat*.22);
   col += vec3(1.,.45,.06)*pow(flame,2.4)*(.12+uBeat*.18);
-  return hueRot(col, uHue*.08);        /* subtle drift, but it remains recognisably fire */
+  return hueRot(col, uHue*.08 + uBeat*.3);   /* each hit swings the colour, then it settles */
 }
 
 /* ═══ 04 LAVA 熔岩燈 — metaball lamp ═══ */
@@ -460,7 +470,8 @@ vec3 sceneLava(vec2 uv){
 /* ═══ 05 WARP 蟲洞航行 — hyperspace tunnel, star streaks, spectrum mandala ═══ */
 vec3 sceneWarp(vec2 uv){
   vec2 p = (uv-.5)*vec2(aspect(),1.);
-  p += vec2(sin(uTime*.16), cos(uTime*.12))*.05 + uBreeze*.04;   /* drifting flight path */
+  p += vec2(sin(uTime*.16)+.6*sin(uTime*.057+2.),
+            cos(uTime*.12)+.6*cos(uTime*.043+1.))*.11 + uBreeze*.07;   /* wide wandering flight path */
   float r = max(length(p), 1e-4);
   float ang = atan(p.y, p.x);
   float z = uScroll*.05;                        /* travel distance follows the music */
@@ -688,7 +699,7 @@ vec3 sceneAbyss(vec2 uv){
     float size = .16+.13*h11(fi*3.3);
     vec3 tint = mix(vec3(.15,.85,1.), vec3(1.,.3,.85), h11(fi*5.+2.));
     tint = mix(tint, vec3(.4,1.,.6), step(.8,h11(fi*7.7)));
-    col += jellyGlow(p, pos, size, ph, hueRot(tint, uHue*.4)) * sin(yph*3.14159);
+    col += jellyGlow(p, pos, size, ph, hueRot(tint, uHue*.9 + uBeat*.9)) * sin(yph*3.14159);
   }
   col += vec3(.1,.5,.8)*uBeat*.05;
   return col;
@@ -814,7 +825,7 @@ const A = { bass:0, mid:0, treble:0, level:0, beat:0,
             bassAvg:0.01, lastBeat:0,
             hue:0, wind:0, windT:0, windSign:1, energy:0,
             vocal:0, breezeAng:.7,
-            gustIdx:0,
+            gustIdx:0, beatIvl:.55, sinceGust:9,
             gusts:Array.from({length:GUST_COUNT}, ()=>({sx:9,sy:9,tx:0,ty:0,x:9,y:9,dx:0,dy:0,amp:0,age:9,dur:3,port:0})) };
 const gustArr = new Float32Array(GUST_COUNT*4);
 const gustExArr = new Float32Array(GUST_COUNT*4);
@@ -881,6 +892,7 @@ function spawnGust(b){
   g.amp = .34 + 1.1*Math.min(1, b*1.9);
   g.dur = 2.45 + Math.random()*1.15;
   g.age = 0;
+  A.sinceGust = 0;
 }
 function analyze(dt, now){
   if(!analyser) return;
@@ -898,6 +910,8 @@ function analyze(dt, now){
   /* beat: bass energy vs running average */
   A.bassAvg += (b - A.bassAvg)*Math.min(1, dt*1.4);
   if(b > A.bassAvg*1.32 && b > .06 && now-A.lastBeat > .22){
+    const gap = now - A.lastBeat;               /* learn the song's tempo */
+    if(gap < 2.5) A.beatIvl += (gap - A.beatIvl)*.3;
     A.beat = 1; A.lastBeat = now;
     A.windSign *= -1;                         /* lateral drift alternates sides */
     A.windT = A.windSign*(.5 + .9*b);
@@ -911,6 +925,7 @@ function analyze(dt, now){
   A.vocal  += (m*1.7 - A.vocal)*Math.min(1, dt*3.2);  /* vocal band → wandering breeze */
   A.breezeAng += dt*(.13 + .3*Math.abs(Math.sin(now*.047)));
   A.hue += dt*(.05 + .2*A.treble);            /* constant slow colour drift */
+  let maxGustS = 0;
   for(let i=0;i<GUST_COUNT;i++){
     const g = A.gusts[i]; g.age += dt;
     const travel = Math.min(1, g.age/g.dur);
@@ -920,10 +935,17 @@ function analyze(dt, now){
     const attack = Math.min(1, g.age/.38);
     const decay = Math.exp(-Math.max(0, g.age-.18)/2.15);
     const s = g.amp * attack * decay;
+    if(s > maxGustS) maxGustS = s;
     gustArr[i*4]   = g.x;     gustArr[i*4+1] = g.y;
     gustArr[i*4+2] = g.dx*s;  gustArr[i*4+3] = g.dy*s;
     gustExArr[i*4]   = g.age;  gustExArr[i*4+1] = g.port;
     gustExArr[i*4+2] = g.sx;   gustExArr[i*4+3] = g.sy;
+  }
+  /* keeper: at least one inlet is always smoking, paced to the learned tempo */
+  A.sinceGust += dt;
+  const cad = Math.min(Math.max(A.beatIvl, .3), 2.2);
+  if(A.sinceGust > .25 && (maxGustS < .07 || A.sinceGust > cad*1.5)){
+    spawnGust(Math.max(b*1.3, .3));
   }
   /* freq texture (log-ish bin spread) */
   for(let i=0;i<FREQ_W;i++){
@@ -1188,6 +1210,10 @@ function parseYT(url){
   const m = url.match(/(?:youtube\.com\/(?:watch\?[^#]*v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})/);
   return m ? m[1] : null;
 }
+function parseYTList(url){
+  const m = url.match(/[?&]list=([\w-]+)/);
+  return m ? m[1] : null;
+}
 function closeYT(){
   document.getElementById('ytPanel').classList.remove('show');
   if(srcType==='yt'){
@@ -1197,16 +1223,21 @@ function closeYT(){
   }
 }
 async function loadYT(){
-  const id = parseYT(document.getElementById('ytUrl').value.trim());
-  if(!id){ toast('看不懂這個連結 — 支援 youtube.com/watch、youtu.be、shorts'); return; }
+  const url = document.getElementById('ytUrl').value.trim();
+  const id = parseYT(url);
+  const list = parseYTList(url);
+  if(!id && !list){ toast('看不懂這個連結 — 支援 watch / youtu.be / shorts / 播放清單'); return; }
   if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
     toast('此瀏覽器不支援分頁音訊擷取 — YouTube 模式桌面 Chrome / Edge 限定'); return;
   }
   ensureCtx(); actx.resume(); detachSource();
-  /* embed the player in our own tab — its sound becomes capturable */
+  /* embed the player in our own tab — its sound becomes capturable.
+     a list parameter makes the player run through the whole playlist. */
+  const embed = id
+    ? 'https://www.youtube-nocookie.com/embed/'+id+'?autoplay=1&playsinline=1'+(list ? '&list='+list : '')
+    : 'https://www.youtube-nocookie.com/embed/videoseries?autoplay=1&playsinline=1&list='+list;
   document.getElementById('ytBox').innerHTML =
-    '<iframe src="https://www.youtube-nocookie.com/embed/'+id+
-    '?autoplay=1&playsinline=1" allow="autoplay; encrypted-media" allowfullscreen></iframe>';
+    '<iframe src="'+embed+'" allow="autoplay; encrypted-media" allowfullscreen></iframe>';
   try{
     const st = await navigator.mediaDevices.getDisplayMedia({
       video:true, audio:true, preferCurrentTab:true, selfBrowserSurface:'include'});
@@ -1220,9 +1251,9 @@ async function loadYT(){
     curSrcNode.connect(analyser);
     monitor.gain.value = 0;          /* 影片本身出聲，不重複播放 */
     srcType = 'yt';
-    setSrcUI('bYT','YT','YOUTUBE — '+id.toUpperCase());
+    setSrcUI('bYT','YT', id ? 'YOUTUBE — '+id.toUpperCase() : 'YOUTUBE PLAYLIST — '+list.slice(0,14).toUpperCase());
     setTransport(false);
-    fetch('https://noembed.com/embed?url=https://www.youtube.com/watch?v='+id)
+    if(id) fetch('https://noembed.com/embed?url=https://www.youtube.com/watch?v='+id)
       .then(r=>r.json())
       .then(j=>{ if(j.title && srcType==='yt')
         document.getElementById('trackName').textContent = 'YT — '+j.title.toUpperCase(); })
@@ -1286,7 +1317,7 @@ addEventListener('touchend', e=>{
 }, {passive:true});
 
 /* ── self-update: manual version check; no background polling during development ── */
-const APP_VERSION = '2.11.0';   /* ⚠ 發佈時同步 bump 此值與 version.json */
+const APP_VERSION = '2.12.0';   /* ⚠ 發佈時同步 bump 此值與 version.json */
 document.getElementById('verLabel').textContent = 'v'+APP_VERSION;
 let latestV = null, checkingUpdate = false;
 const updBtn = document.getElementById('updBtn');

@@ -10,8 +10,8 @@ Blade Runner 風格的音樂視覺化器。**單一 HTML 檔案**，零相依套
 
 | # | 模式 | 說明 |
 |---|------|------|
-| 01 | SMOKE 煙霧 | 畫面四周設八個入煙口，每個節拍隨機開一口放煙進場，煙團邊前進邊翻捲膨脹 |
-| 02 | FIRE 火焰 | 低音與重拍改變火焰高度、亮度、色溫與白熱核心 |
+| 01 | SMOKE 煙霧 | 八個入煙口隨節拍隨機開口放煙；系統會學習歌曲節奏，保證任何時刻至少一口在進煙 |
+| 02 | FIRE 火焰 | 雙層景深：前景火焰吃低音與色溫，背景幽靈火舌隨節拍躍起並換色，每個重拍整體色相一甩 |
 | 03 | LAVA 熔岩燈 | Metaball 熔岩燈，bass 讓蠟球膨脹 |
 | 04 | WARP 蟲洞航行 | 超空間隧道：航速隨音樂、星流線隨音量拉長、頻譜化作隧道口曼陀羅、重拍從核心射出光環 |
 | 05 | ROAD 都市道路 | Blade Runner 風格的濕冷都市道路、末日科技天際線、霓虹反射與濃霧 |
@@ -22,7 +22,7 @@ Blade Runner 風格的音樂視覺化器。**單一 HTML 檔案**，零相依套
 ## 音源（任選其一）
 
 - **FILE 音檔** — 載入本機音檔，也可直接拖放到視窗。**雙引擎解碼**：先走 `<audio>` 串流（省記憶體），失敗自動 fallback 到 `decodeAudioData` 全檔解碼。實際支援格式依瀏覽器：MP3 / AAC·M4A / WAV / FLAC 全平台沒問題；OGG / Opus / WebM 在 Chrome、Firefox、新版 Safari 可用；AIFF / CAF / ALAC 在 Safari 可用。WMA / APE / WavPack 這類瀏覽器完全沒有解碼器的格式會明確提示無法播放
-- **YOUTUBE 連結播放** — 貼上 YouTube 連結（支援 `watch` / `youtu.be` / `shorts`），影片嵌入本頁播放，按下 LOAD 後瀏覽器會請求分享音訊——選「**此分頁 / This Tab**」一鍵授權，視覺即時跟著影片的聲音跳動。原理：跨網域 iframe 的音訊無法直接進 Web Audio 分析器（瀏覽器安全模型），所以把影片嵌進自己的分頁再自我擷取，是靜態網頁唯一的正規解法。**桌面 Chrome / Edge 限定**（iOS / Safari 不支援分頁擷取）
+- **YOUTUBE 連結播放** — 貼上 YouTube 連結（支援 `watch` / `youtu.be` / `shorts` / **播放清單** —— 含 `list=` 的連結會自動整列接續播放），影片嵌入本頁播放，按下 LOAD 後瀏覽器會請求分享音訊——選「**此分頁 / This Tab**」一鍵授權，視覺即時跟著影片的聲音跳動。原理：跨網域 iframe 的音訊無法直接進 Web Audio 分析器（瀏覽器安全模型），所以把影片嵌進自己的分頁再自我擷取，是靜態網頁唯一的正規解法。**桌面 Chrome / Edge 限定**（iOS / Safari 不支援分頁擷取）
 - **DEMO 訊號** — 內建 96 BPM synthwave 迴圈（kick + acid bass + pad），一鍵就有東西看
 
 iOS 上請使用 FILE 或 DEMO 模式。
