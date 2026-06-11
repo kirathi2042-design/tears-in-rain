@@ -365,7 +365,7 @@ vec3 sceneSmoke(vec2 uv){
     vec2 origin = uGustEx[i].zw;                   /* the inlet this plume came through */
     /* the plume curls as it advances — spin alternates with the chosen port */
     float sgn = mod(uGustEx[i].y, 2.) < 1. ? 1. : -1.;
-    q = vortexWarp(q, head, sgn*amp*1.9, .42+age*.15);
+    q = vortexWarp(q, head, sgn*amp*1.4, .42+age*.15);
     /* mass: a chain of puffs from the inlet to the head, billowing as it goes */
     for(int k=0;k<5;k++){
       float fk = float(k)/4.;
@@ -415,13 +415,13 @@ vec3 sceneFire(vec2 uv){
   float lift = .42 + uEnergy*.92 + uBeat*.07;
   float flame = flameShape(uv, t, w, 1.55, 0., lift);
   /* back layer: a taller ghost flame in a shifted hue, leaping on each beat */
-  float liftB = .56 + uEnergy*.66 + uBeat*.6;
+  float liftB = .56 + uEnergy*.66 + uBeat*.32;
   float backF = flameShape(uv, t*.72 + 5., w*1.5, 2.6, 37., liftB);
   float heat = clamp(uEnergy*.75 + uBass*.55 + uBeat*.3, 0., 1.35);
   float oxygen = clamp(uTreble*.42 + uBeat*.18, 0., .65);
   vec3 col = vec3(0.);
   /* the ghost flame shows wherever the front flame thins out */
-  vec3 backC = hueRot(vec3(.85,.22,.06), uHue*.12 + 2.4 + uBeat*.9);
+  vec3 backC = hueRot(vec3(.85,.22,.06), uHue*.12 + 2.4 + uBeat*.5);
   col += backC * pow(backF,1.25) * (.3+.34*uBeat+.1*uMid) * (1.-smoothstep(.08,.5,flame));
   col = mix(col, vec3(.34,.015,.006), smoothstep(.02,.25,flame));
   col = mix(col, vec3(.95,.18,.025),  smoothstep(.20,.50,flame));
@@ -434,7 +434,7 @@ vec3 sceneFire(vec2 uv){
   col += mix(vec3(.75,.09,.015), vec3(1.,.58,.16), heat)
        * pow(max(0.,1.-uv.y),2.7)*edge*(.34+uEnergy*.8+uBeat*.22);
   col += vec3(1.,.45,.06)*pow(flame,2.4)*(.12+uBeat*.18);
-  return hueRot(col, uHue*.08 + uBeat*.3);   /* each hit swings the colour, then it settles */
+  return hueRot(col, uHue*.08 + uBeat*.12);  /* each hit swings the colour gently, then settles */
 }
 
 /* ═══ 04 LAVA 熔岩燈 — metaball lamp ═══ */
@@ -825,7 +825,7 @@ const A = { bass:0, mid:0, treble:0, level:0, beat:0,
             bassAvg:0.01, lastBeat:0,
             hue:0, wind:0, windT:0, windSign:1, energy:0,
             vocal:0, breezeAng:.7,
-            gustIdx:0, beatIvl:.55, sinceGust:9,
+            gustIdx:0, beatIvl:.55, sinceGust:9, beatSm:0, hueSm:0,
             gusts:Array.from({length:GUST_COUNT}, ()=>({sx:9,sy:9,tx:0,ty:0,x:9,y:9,dx:0,dy:0,amp:0,age:9,dur:3,port:0})) };
 const gustArr = new Float32Array(GUST_COUNT*4);
 const gustExArr = new Float32Array(GUST_COUNT*4);
@@ -909,16 +909,20 @@ function analyze(dt, now){
   A.level  = Math.max(l*1.55, A.level*k);
   /* beat: bass energy vs running average */
   A.bassAvg += (b - A.bassAvg)*Math.min(1, dt*1.4);
-  if(b > A.bassAvg*1.32 && b > .06 && now-A.lastBeat > .22){
+  if(b > A.bassAvg*1.32 && b > .06 && now-A.lastBeat > .26){
     const gap = now - A.lastBeat;               /* learn the song's tempo */
     if(gap < 2.5) A.beatIvl += (gap - A.beatIvl)*.3;
     A.beat = 1; A.lastBeat = now;
     A.windSign *= -1;                         /* lateral drift alternates sides */
     A.windT = A.windSign*(.5 + .9*b);
     A.hue += .14;                             /* palette kick on the downbeat */
-    spawnGust(b);                             /* a beat opens a random inlet port */
+    /* at most one plume per beat interval — fast songs no longer churn the frame */
+    if(A.sinceGust > Math.min(Math.max(A.beatIvl,.45),2.2)*.6) spawnGust(b);
   }
   A.beat *= Math.pow(.012, dt);
+  /* transient shaping: ~60ms attack — punch survives, the strobe doesn't */
+  A.beatSm += (A.beat - A.beatSm)*Math.min(1, dt*16);
+  A.hueSm  += (A.hue  - A.hueSm) *Math.min(1, dt*6);   /* hue steps glide instead of snapping */
   A.windT *= Math.pow(.05, dt);
   A.wind += (A.windT - A.wind)*Math.min(1, dt*9.);    /* soft attack — no snap */
   A.energy += (l*1.5 - A.energy)*Math.min(1, dt*2.2); /* slow breathing envelope */
@@ -943,8 +947,8 @@ function analyze(dt, now){
   }
   /* keeper: at least one inlet is always smoking, paced to the learned tempo */
   A.sinceGust += dt;
-  const cad = Math.min(Math.max(A.beatIvl, .3), 2.2);
-  if(A.sinceGust > .25 && (maxGustS < .07 || A.sinceGust > cad*1.5)){
+  const cad = Math.min(Math.max(A.beatIvl, .45), 2.2);
+  if(A.sinceGust > .3 && (maxGustS < .07 || A.sinceGust > cad*1.7)){
     spawnGust(Math.max(b*1.3, .3));
   }
   /* freq texture (log-ish bin spread) */
@@ -1317,7 +1321,7 @@ addEventListener('touchend', e=>{
 }, {passive:true});
 
 /* ── self-update: manual version check; no background polling during development ── */
-const APP_VERSION = '2.12.0';   /* ⚠ 發佈時同步 bump 此值與 version.json */
+const APP_VERSION = '2.12.1';   /* ⚠ 發佈時同步 bump 此值與 version.json */
 document.getElementById('verLabel').textContent = 'v'+APP_VERSION;
 let latestV = null, checkingUpdate = false;
 const updBtn = document.getElementById('updBtn');
@@ -1430,8 +1434,8 @@ function frame(now){
   gl.uniform1f(U.uMid, Math.min(A.mid,1.2));
   gl.uniform1f(U.uTreble, Math.min(A.treble,1.2));
   gl.uniform1f(U.uLevel, Math.min(A.level,1.2));
-  gl.uniform1f(U.uBeat, A.beat);
-  gl.uniform1f(U.uHue, A.hue % 6.2832);
+  gl.uniform1f(U.uBeat, A.beatSm);
+  gl.uniform1f(U.uHue, A.hueSm % 6.2832);
   gl.uniform1f(U.uWind, A.wind);
   gl.uniform1f(U.uEnergy, Math.min(A.energy, 1.2));
   const bm = .08 + .55*Math.min(A.vocal, 1.2);
